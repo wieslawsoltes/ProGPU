@@ -92,7 +92,7 @@ pub(super) fn validate_styled_glyph_draw(
     }
     Ok(())
 }
-pub(super) fn validate_painted_glyph_draw(
+pub(crate) fn validate_painted_glyph_draw(
     input: &Input<'_>,
     c: &wire::Command,
 ) -> TransportResult<()> {

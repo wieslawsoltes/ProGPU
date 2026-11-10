@@ -22,6 +22,26 @@ pub struct NativeVectorRenderPage {
     metrics: NativeVectorGpuMetrics,
 }
 impl NativeVectorRenderPage {
+    pub fn preflight(
+        device: &wgpu::Device,
+        source: &NativeVectorPage,
+    ) -> Result<NativeVectorGpuMetrics, Error> {
+        let v = (source.vertices().len() as u64)
+            .checked_mul(56)
+            .ok_or(Error::Capacity)?;
+        let i = (source.indices().len() as u64)
+            .checked_mul(4)
+            .ok_or(Error::Capacity)?;
+        let maximum = device.limits().max_buffer_size;
+        if v.max(4) > maximum || i.max(4) > maximum {
+            return Err(Error::Capacity);
+        }
+        Ok(NativeVectorGpuMetrics {
+            vertex_upload_bytes: v,
+            index_upload_bytes: i,
+            allocated_bytes: v.max(4) + i.max(4) + 4,
+        })
+    }
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
@@ -49,12 +69,21 @@ impl NativeVectorRenderPage {
             .checked_mul(4)
             .ok_or(Error::Capacity)?;
         let maximum = device.limits().max_buffer_size;
-        if vertex_bytes == 0 || index_bytes == 0 || vertex_bytes > maximum || index_bytes > maximum
-        {
+        if vertex_bytes.max(4) > maximum || index_bytes.max(4) > maximum {
             return Err(Error::Capacity);
         }
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let make = |label, contents: &[u8], usage| {
+            // Collapsed native pages retain their source and emit no draws.
+            // Empty backing performs no CPU upload and is not geometry bytes.
+            if contents.is_empty() {
+                return device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: 4,
+                    usage,
+                    mapped_at_creation: false,
+                });
+            }
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
                 contents,
@@ -113,7 +142,7 @@ impl NativeVectorRenderPage {
             metrics: NativeVectorGpuMetrics {
                 vertex_upload_bytes: vertex_bytes,
                 index_upload_bytes: index_bytes,
-                allocated_bytes: vertex_bytes + index_bytes + 4,
+                allocated_bytes: vertex_bytes.max(4) + index_bytes.max(4) + 4,
             },
         })
     }

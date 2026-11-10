@@ -1,7 +1,7 @@
 //! Original native retained-page identities. Family dependencies retain actual
 //! source owners; stream generation and serialization offsets are independent.
 use super::*;
-use wire::{constants::*, WireRecord};
+use wire::{WireRecord, constants::*};
 mod commands;
 mod content;
 mod suffix;
@@ -106,6 +106,10 @@ impl NativeScene {
 }
 
 const FNV_OFFSET: u64 = 14695981039346656037;
+/// Original raw composite-buffer key; unlike family identities, zero is retained.
+pub(crate) fn raw_fnv1a64(bytes: &[u8]) -> u64 {
+    append(FNV_OFFSET, bytes)
+}
 fn append(mut hash: u64, bytes: &[u8]) -> u64 {
     // FNV is one ordered dependency chain, not an independent data-parallel loop.
     for &byte in bytes {
@@ -114,11 +118,7 @@ fn append(mut hash: u64, bytes: &[u8]) -> u64 {
     hash
 }
 fn finish(hash: u64) -> u64 {
-    if hash == 0 {
-        1
-    } else {
-        hash
-    }
+    if hash == 0 { 1 } else { hash }
 }
 fn record<T: WireRecord>(hash: u64, value: T) -> u64 {
     // Only original scalar/prefix records of at most 64 bytes are hashed here.

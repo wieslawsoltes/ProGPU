@@ -3,7 +3,7 @@ use super::*;
 use crate::{geometry::Affine, vector::GpuPathRecord};
 use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
-mod program;
+pub(crate) mod program;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct NativePathUniforms {

@@ -16,6 +16,34 @@ mod spline;
 mod stroke;
 pub use page::{NativeVectorDrawRange, NativeVectorPage, NativeVectorPageMetrics};
 
+/// Original count-only command route; no output vertex or index page is emitted.
+pub(crate) fn preflight_command(
+    frame: &NativeCommandFrame,
+    materials: &NativeBrushPage,
+    padding: f32,
+) -> Result<(usize, usize), Error> {
+    page::compile_command(frame, materials, padding, None)
+}
+
+/// Geometry-mask production uses this same native primitive encoder and brush
+/// slot zero, after the caller has applied the original mask target transform.
+pub(crate) fn compile_mask_geometry(
+    primitives: &[wire::GeometryPrimitive],
+) -> Result<(Vec<VectorVertex>, Vec<u32>), Error> {
+    let mut counts = (0usize, 0usize);
+    for primitive in primitives {
+        let (v, i) = geometry::capacity(primitive)?;
+        counts.0 = counts.0.checked_add(v).ok_or(Error::Capacity)?;
+        counts.1 = counts.1.checked_add(i).ok_or(Error::Capacity)?;
+    }
+    let mut output = Output::default();
+    output.reserve(counts.0, counts.1)?;
+    for primitive in primitives {
+        geometry::append(primitive, 0.0, &mut output)?;
+    }
+    Ok((output.vertices, output.indices))
+}
+
 #[derive(Default)]
 struct Output {
     vertices: Vec<VectorVertex>,

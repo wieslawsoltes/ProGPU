@@ -132,6 +132,8 @@ pub struct NativeFrameBindings {
     pub frame: wgpu::BindGroup,
     pub vector: wgpu::BindGroup,
     pub text: wgpu::BindGroup,
+    upload_bytes: u64,
+    binding_allocations: u32,
 }
 impl NativeFrameBindings {
     pub fn uniforms(&self) -> NativeGpuUniforms {
@@ -141,7 +143,67 @@ impl NativeFrameBindings {
         &self.material
     }
     pub fn upload_bytes(&self) -> u64 {
-        224
+        self.upload_bytes
+    }
+    pub fn binding_allocations(&self) -> u32 {
+        self.binding_allocations
+    }
+    /// Original slot rebinding leaves unchanged frame bytes and image bindings
+    /// untouched while retaining the newly selected material generation.
+    pub async fn rebind(
+        pipelines: &NativePipelineCache,
+        material: Arc<PreparedNativeMaterials>,
+        previous: &Self,
+    ) -> Result<Self, Error> {
+        let device = pipelines.device();
+        if material.device() != device || previous.material.device() != device {
+            return Err(Error::ResourceDomain);
+        }
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let layouts = pipelines.layouts();
+        let mut binding_allocations = 0;
+        let vector = if previous.material.brush_buffer == material.brush_buffer
+            && previous.material.gradient_buffer == material.gradient_buffer
+        {
+            previous.vector.clone()
+        } else {
+            binding_allocations += 1;
+            layout::bind(
+                device,
+                &layouts.vector,
+                &[
+                    layout::buffer_entry(0, &previous.buffer),
+                    layout::buffer_entry(1, &material.brush_buffer),
+                    layout::buffer_entry(2, &material.gradient_buffer),
+                ],
+            )
+        };
+        let text = if previous.material.style_buffer == material.style_buffer {
+            previous.text.clone()
+        } else {
+            binding_allocations += 1;
+            layout::bind(
+                device,
+                &layouts.text,
+                &[
+                    layout::buffer_entry(0, &previous.buffer),
+                    layout::buffer_entry(1, &material.style_buffer),
+                ],
+            )
+        };
+        if let Some(error) = scope.pop().await {
+            return Err(error.into());
+        }
+        Ok(Self {
+            uniforms: previous.uniforms,
+            material,
+            buffer: previous.buffer.clone(),
+            frame: previous.frame.clone(),
+            vector,
+            text,
+            upload_bytes: 0,
+            binding_allocations,
+        })
     }
     pub async fn prepare(
         pipelines: &NativePipelineCache,
@@ -187,6 +249,8 @@ impl NativeFrameBindings {
             frame,
             vector,
             text,
+            upload_bytes: 224,
+            binding_allocations: 3,
         })
     }
 }

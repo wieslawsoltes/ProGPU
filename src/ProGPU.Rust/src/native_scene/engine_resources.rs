@@ -25,6 +25,17 @@ pub use three_d::{
 pub use three_d::{NativeThreeDDepthTarget, NativeThreeDPageEngine, PreparedNativeThreeDPage};
 mod geometry;
 mod glyph;
+mod glyph_rgb;
+pub mod layers;
+pub use glyph_rgb::{
+    NativeRgbCell, NativeRgbCompositeFrame, NativeRgbGlyphMetrics, NativeRgbGlyphPage,
+    NativeRgbGlyphTile, NativeRgbInstance,
+};
+#[cfg(feature = "gpu")]
+pub use glyph_rgb::{
+    NativeRgbGlyphEngine, NativeRgbGlyphSubmission, NativeRgbMaskSource, NativeRgbTarget,
+    PreparedNativeRgbGlyphPage,
+};
 pub(crate) mod path;
 pub use glyph::{
     NativeColorGlyphRaster, NativeGlyphDrawRange, NativeGlyphPage, NativeGlyphPageMetrics,
@@ -73,7 +84,7 @@ pub struct NativeExternalImageInfo {
     pub role: NativeImageRole,
     pub size: [u32; 2],
 }
-fn external_info_valid(info: &[NativeExternalImageInfo]) -> bool {
+pub(crate) fn external_info_valid(info: &[NativeExternalImageInfo]) -> bool {
     info.len() <= SCENE_MAX_RESOURCES as usize
         && info.iter().enumerate().all(|(index, b)| {
             b.resource_id != 0
@@ -84,7 +95,7 @@ fn external_info_valid(info: &[NativeExternalImageInfo]) -> bool {
                         < (b.resource_id, b.role))
         })
 }
-fn external_slot(
+pub(crate) fn external_slot(
     info: &[NativeExternalImageInfo],
     id: u64,
     generation: u64,
@@ -137,5 +148,12 @@ impl NativeImageResourceMetrics {
     }
 }
 
-mod vector;
+pub(crate) mod vector;
 pub use vector::{NativeVectorDrawRange, NativeVectorPage, NativeVectorPageMetrics};
+
+pub mod masks;
+#[cfg(feature = "gpu")]
+pub use masks::{
+    NativeMaskEngine, NativePictureMaskCapture, NativePictureMaskResolver, PreparedNativeMask,
+};
+pub use masks::{NativeMaskMetrics, NativeMaskRequest, NativeMaskTarget, NativePictureMaskSource};

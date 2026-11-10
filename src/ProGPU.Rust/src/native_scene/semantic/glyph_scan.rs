@@ -20,13 +20,26 @@ pub(crate) fn segment(segment: &wire::PathSegment) -> bool {
         && segment.pad2 != 0
 }
 pub(crate) fn outline(outline: &wire::GlyphOutline, segments: &[wire::PathSegment]) -> bool {
-    let Some(first) = segments.first() else {
+    outline_with(outline, segments.len(), |index| segments[index])
+}
+/// Original source reader contract also admits alignment-independent wire
+/// records without allocating a second full outline inventory.
+pub(crate) fn outline_with(
+    outline: &wire::GlyphOutline,
+    count: usize,
+    mut read: impl FnMut(usize) -> wire::PathSegment,
+) -> bool {
+    if count == 0 {
         return false;
-    };
-    if first.pad0 == 0 {
-        return segments.iter().all(|s| s.pad0 == 0 && segment(s));
     }
-    if segments.len() > 256 || outline.raster_scale != 1.0 || outline.subpixel_x != 0.0 {
+    let first = read(0);
+    if first.pad0 == 0 {
+        return (0..count).all(|index| {
+            let s = read(index);
+            s.pad0 == 0 && segment(&s)
+        });
+    }
+    if count > 256 || outline.raster_scale != 1.0 || outline.subpixel_x != 0.0 {
         return false;
     }
     let flags = first.pad0 & ORIGINAL_FLAGS_MASK;
@@ -35,20 +48,21 @@ pub(crate) fn outline(outline: &wire::GlyphOutline, segments: &[wire::PathSegmen
         p.x >= outline.min_x && p.x <= outline.max_x && p.y >= outline.min_y && p.y <= outline.max_y
     };
     let mut start = 0usize;
-    while start < segments.len() {
-        let first = &segments[start];
+    while start < count {
+        let first = read(start);
         if first.pad0 == 0
-            || !segment(first)
+            || !segment(&first)
             || first.pad1 as usize != start
-            || first.pad2 as usize > segments.len() - start
+            || first.pad2 as usize > count - start
             || first.pad0 & ORIGINAL_FLAGS_MASK != flags
         {
             return false;
         }
         let end = start + first.pad2 as usize;
         let mut previous = first.p0;
-        for current in &segments[start..end] {
-            if !segment(current)
+        for index in start..end {
+            let current = read(index);
+            if !segment(&current)
                 || current.pad0 != first.pad0
                 || current.pad1 != first.pad1
                 || current.pad2 != first.pad2

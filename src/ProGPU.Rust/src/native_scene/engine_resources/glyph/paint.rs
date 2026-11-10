@@ -37,11 +37,20 @@ impl NativeGlyphPaintBindings {
         external: &NativeExternalImages,
         sentinel: &NativeImageTexture,
     ) -> Result<(), Error> {
+        if sentinel.device() != device {
+            return Err(Error::ResourceDomain);
+        }
+        Self::preflight_metadata(device, page, external)
+    }
+    /// Whole original external-paint inventory, independent of the engine's
+    /// one-texel sentinel allocation. Used by aggregate page preflight.
+    pub fn preflight_metadata(
+        device: &wgpu::Device,
+        page: &NativeGlyphRasterPage,
+        external: &NativeExternalImages,
+    ) -> Result<(), Error> {
         let source = page.source();
-        if external.device() != device
-            || sentinel.device() != device
-            || source.external_images() != external.metadata()
-        {
+        if external.device() != device || source.external_images() != external.metadata() {
             return Err(Error::ResourceDomain);
         }
         if source.paints().is_empty() {

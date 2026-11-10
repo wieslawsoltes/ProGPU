@@ -1,14 +1,14 @@
 //! Original bounded native Boolean program classifier and GPU record writer.
 use super::*;
-pub(super) const PROGRAM: u32 = 0x8000_0000;
-pub(super) const SIGNED: u32 = 0x4000_0000;
-pub(super) struct Reference {
+pub(crate) const PROGRAM: u32 = 0x8000_0000;
+pub(crate) const SIGNED: u32 = 0x4000_0000;
+pub(crate) struct Reference {
     pub path_record_index: u32,
     pub program_index: u32,
     pub operation_kind: u32,
     pub split_leaf_count: u32,
 }
-pub(super) fn append(
+pub(crate) fn append(
     path: &wire::PathFill,
     nodes: &[wire::PathBooleanNode],
     segments: &[wire::PathSegment],

@@ -7,6 +7,19 @@ use crate::Error;
 use std::sync::Arc;
 use wire::{WireRecord, constants::*};
 pub mod budget;
+mod draw_plan;
+pub use draw_plan::{
+    NativeDrawCommandCost, NativeDrawExecutionPlan, NativeDrawFamily, NativeDrawPlanMetrics,
+};
+mod resources;
+pub use resources::{NativeSceneCompileOptions, NativeSceneRasterPages, NativeSceneResourcePlan};
+mod clear;
+pub use clear::NativeTargetClearOperation;
+mod layer_plan;
+pub use layer_plan::{
+    NativeLayerExecutionPlan, NativeLayerOccurrence, NativeLayerPlanMetrics,
+    NativeSceneBudgetInput, NativeSceneExecutionBudget, NativeTargetFormat,
+};
 mod frame;
 mod scissor;
 mod state;

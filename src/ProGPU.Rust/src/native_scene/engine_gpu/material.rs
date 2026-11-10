@@ -19,6 +19,28 @@ pub struct PreparedNativeMaterials {
     metrics: NativeMaterialGpuMetrics,
 }
 impl PreparedNativeMaterials {
+    pub fn preflight(
+        device: &wgpu::Device,
+        brushes: &NativeBrushPage,
+        styles: &NativeTextStylePage,
+    ) -> Result<NativeMaterialGpuMetrics, Error> {
+        if !Arc::ptr_eq(brushes.scene(), styles.scene()) {
+            return Err(Error::ResourceDomain);
+        }
+        let l = device.limits();
+        let maximum = l.max_buffer_size.min(l.max_storage_buffer_binding_size);
+        let b = record_bytes(brushes.brushes())?;
+        let g = record_bytes(brushes.gradient_stops())?;
+        let s = record_bytes(styles.styles())?;
+        Ok(NativeMaterialGpuMetrics {
+            brush_upload_bytes: b,
+            gradient_upload_bytes: g,
+            style_upload_bytes: s,
+            allocated_bytes: capacity(b, 64 * 256, maximum)?
+                + capacity(g, 32, maximum)?
+                + capacity(s, 32, maximum)?,
+        })
+    }
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }

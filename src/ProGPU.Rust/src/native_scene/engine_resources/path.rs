@@ -7,9 +7,10 @@ use crate::native_scene::{
     semantic::{source_draw, values},
 };
 mod compile;
+pub(crate) use compile::counts as resource_counts;
 #[cfg(feature = "gpu")]
 pub(crate) mod gpu;
-mod raster;
+pub(crate) mod raster;
 #[cfg(feature = "gpu")]
 pub use gpu::{
     NativePathCoverageCommands, NativePathPageEngine, NativeRasterResourceMetrics,
@@ -140,7 +141,7 @@ fn identity() -> wire::Affine2d {
         ..Default::default()
     }
 }
-fn material(path: &mut wire::PathFill, brush: &wire::Brush) {
+pub(crate) fn material(path: &mut wire::PathFill, brush: &wire::Brush) {
     if brush.kind == SCENE_BRUSH_SOLID {
         path.color = brush.colors[0];
     }

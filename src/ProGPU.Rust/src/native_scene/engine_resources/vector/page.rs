@@ -160,7 +160,7 @@ fn add(total: &mut (usize, usize), value: (usize, usize)) -> Result<(), Error> {
     total.1 = total.1.checked_add(value.1).ok_or(Error::Capacity)?;
     Ok(())
 }
-fn compile_command(
+pub(super) fn compile_command(
     frame: &NativeCommandFrame,
     materials: &NativeBrushPage,
     padding: f32,

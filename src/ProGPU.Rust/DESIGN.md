@@ -1,5 +1,14 @@
 # Rust port design and evidence
 
+
+Current native execution continuation (2026-11-10), implementation only:
+[whole-scene preflight/resource integration](notes/native-scene-resource-integration-port.md),
+[typed-draw preflight](notes/native-scene-draw-plan-port.md),
+[layer targets](notes/native-layer-engine-resources-port.md) and
+[RGB glyph replay](notes/native-scene-rgb-glyph-port.md) retain original source
+hashes and independent qualification boundaries. Complete outer ordered replay,
+actual captures/effects and cache integration continue. No new validation ran.
+
 The authoritative algorithms are the original ProGPU files listed in README.md.
 External sources below inform boundaries and tests only; no external engine code
 is copied or translated into the implementation.

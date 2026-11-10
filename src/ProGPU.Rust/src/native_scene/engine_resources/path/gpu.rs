@@ -3,7 +3,9 @@ use super::*;
 use std::{collections::BTreeMap, num::NonZeroU64};
 use wgpu::util::DeviceExt;
 mod phase;
+mod plan;
 use phase::{Kernel, Phase};
+pub use plan::NativeRasterPlan;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NativeRasterResourceMetrics {
     pub vertex_upload_bytes: u64,
@@ -28,9 +30,10 @@ struct OwnedPhase {
     bindings: Vec<(wgpu::BindGroup, [u32; 3])>,
     split_after: bool,
 }
-pub struct PreparedNativePathPage {
+pub type PreparedNativePathPage = PreparedNativeRaster<NativePathRasterPage>;
+pub struct PreparedNativeRaster<P: NativeRasterPlan> {
     device: wgpu::Device,
-    source: Arc<NativePathRasterPage>,
+    source: Arc<P>,
     texture: wgpu::Texture,
     view: wgpu::TextureView,
     sampler: wgpu::Sampler,
@@ -62,8 +65,14 @@ impl NativePathPageEngine {
         &self,
         page: &NativePathRasterPage,
     ) -> Result<NativeRasterResourceMetrics, Error> {
+        self.preflight_plan(page)
+    }
+    pub(crate) fn preflight_plan<P: NativeRasterPlan>(
+        &self,
+        page: &P,
+    ) -> Result<NativeRasterResourceMetrics, Error> {
         let l = self.device.limits();
-        if page.source().paths.is_empty()
+        if page.rasters().is_empty()
             || l.max_compute_invocations_per_workgroup < 256
             || l.max_compute_workgroup_size_x < 16
             || l.max_compute_workgroup_size_y < 16
@@ -78,12 +87,12 @@ impl NativePathPageEngine {
         let phases = phase::plan(page)?;
         let storage = l.max_storage_buffer_binding_size.min(l.max_buffer_size);
         let records = page.records().len() as u64 * 32;
-        let segments = page.source().segments.len() as u64 * 48;
+        let segments = page.segments().len() as u64 * 48;
         if [records, segments, page.coverage_staging_bytes()]
             .into_iter()
             .any(|n| n > storage)
-            || page.source().metrics.vertex_bytes > l.max_buffer_size
-            || page.source().metrics.index_bytes > l.max_buffer_size
+            || page.vertex_bytes().len() as u64 > l.max_buffer_size
+            || page.index_bytes().len() as u64 > l.max_buffer_size
         {
             return Err(Error::Capacity);
         }
@@ -107,8 +116,8 @@ impl NativePathPageEngine {
                 .ok_or(Error::Capacity)?;
         }
         Ok(NativeRasterResourceMetrics {
-            vertex_upload_bytes: page.source().metrics.vertex_bytes,
-            index_upload_bytes: page.source().metrics.index_bytes,
+            vertex_upload_bytes: page.vertex_bytes().len() as u64,
+            index_upload_bytes: page.index_bytes().len() as u64,
             outline_upload_bytes: records + segments,
             uniform_upload_bytes: uniform,
             texture_bytes: u64::from(page.atlas_size()).pow(2),
@@ -122,8 +131,14 @@ impl NativePathPageEngine {
         &mut self,
         page: Arc<NativePathRasterPage>,
     ) -> Result<Arc<PreparedNativePathPage>, Error> {
-        let metrics = self.preflight(&page)?;
-        let plan = phase::plan(&page)?;
+        self.prepare_plan(page).await
+    }
+    pub(crate) async fn prepare_plan<P: NativeRasterPlan + 'static>(
+        &mut self,
+        page: Arc<P>,
+    ) -> Result<Arc<PreparedNativeRaster<P>>, Error> {
+        let metrics = self.preflight_plan(page.as_ref())?;
+        let plan = phase::plan(page.as_ref())?;
         self.prepare_pipelines(&plan).await?;
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let layout = self.layout.as_ref().ok_or(Error::UnsupportedExecution)?;
@@ -134,7 +149,7 @@ impl NativePathPageEngine {
             wgpu::BufferUsages::STORAGE,
             32,
         );
-        let segment_bytes = encode_segments(&page.source().segments)?;
+        let segment_bytes = encode_segments(page.segments())?;
         let segments = buffer(
             &self.device,
             "ProGPU native path segments",
@@ -230,14 +245,14 @@ impl NativePathPageEngine {
         let vertices = buffer(
             &self.device,
             "ProGPU native path vertices",
-            bytemuck::cast_slice(page.vertices()),
+            page.vertex_bytes(),
             wgpu::BufferUsages::VERTEX,
             4,
         );
         let indices = buffer(
             &self.device,
             "ProGPU native path indices",
-            bytemuck::cast_slice(page.indices()),
+            page.index_bytes(),
             wgpu::BufferUsages::INDEX,
             4,
         );
@@ -251,7 +266,7 @@ impl NativePathPageEngine {
         if let Some(error) = scope.pop().await {
             return Err(error.into());
         }
-        Ok(Arc::new(PreparedNativePathPage {
+        Ok(Arc::new(PreparedNativeRaster {
             device: self.device.clone(),
             source: page,
             texture,
@@ -320,11 +335,11 @@ impl NativePathPageEngine {
         Ok(())
     }
 }
-impl PreparedNativePathPage {
+impl<P: NativeRasterPlan + 'static> PreparedNativeRaster<P> {
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
-    pub fn page(&self) -> &Arc<NativePathRasterPage> {
+    pub fn page(&self) -> &Arc<P> {
         &self.source
     }
     pub fn texture(&self) -> &wgpu::Texture {

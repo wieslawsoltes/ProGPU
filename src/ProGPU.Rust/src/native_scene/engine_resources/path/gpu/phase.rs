@@ -44,7 +44,7 @@ pub(super) struct Phase {
     pub combine: bool,
     pub split_after: bool,
 }
-pub(super) fn plan(page: &NativePathRasterPage) -> Result<Vec<Phase>, Error> {
+pub(super) fn plan(page: &impl NativeRasterPlan) -> Result<Vec<Phase>, Error> {
     let mut phases = Vec::new();
     let extent = |width: u32| {
         page.rasters().iter().fold([0, 0], |[x, y], r| {

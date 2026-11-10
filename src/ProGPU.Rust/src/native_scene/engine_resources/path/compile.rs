@@ -249,7 +249,7 @@ impl NativePathPage {
         })
     }
 }
-fn counts(payload: &[u8], auxiliary: &[u8]) -> Result<(usize, usize, usize), Error> {
+pub(crate) fn counts(payload: &[u8], auxiliary: &[u8]) -> Result<(usize, usize, usize), Error> {
     if payload.is_empty() || payload.len() % wire::PathFill::WIRE_SIZE != 0 {
         return Err(Error::InvalidInput);
     }

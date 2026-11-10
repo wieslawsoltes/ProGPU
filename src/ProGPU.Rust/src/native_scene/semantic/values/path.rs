@@ -78,16 +78,36 @@ pub(crate) fn boolean(
     fill_rule: u32,
     nodes: &[wire::PathBooleanNode],
 ) -> bool {
+    boolean_with(
+        segment_offset,
+        segment_count,
+        offset,
+        count,
+        fill_rule,
+        nodes.len() as u64,
+        |index| nodes[index],
+    )
+}
+fn boolean_with(
+    segment_offset: u64,
+    segment_count: u64,
+    offset: u64,
+    count: u64,
+    fill_rule: u32,
+    node_count: u64,
+    mut read: impl FnMut(usize) -> wire::PathBooleanNode,
+) -> bool {
     if count == 0 {
         return offset == 0;
     }
-    if count > 63 || offset > nodes.len() as u64 || count > nodes.len() as u64 - offset {
+    if count > 63 || offset > node_count || count > node_count - offset {
         return false;
     }
     let segment_end = segment_offset.wrapping_add(segment_count);
     let mut stack = 0u32;
     let mut signed = false;
-    for node in &nodes[offset as usize..(offset + count) as usize] {
+    for index in offset..offset + count {
+        let node = read(index as usize);
         if node.kind > PATH_BOOLEAN_WINDING_NEGATE || node.reserved0 != 0 || node.reserved1 != 0 {
             return false;
         }
@@ -143,6 +163,17 @@ pub(crate) fn path(
     segment_count: u64,
     nodes: &[wire::PathBooleanNode],
 ) -> Option<u64> {
+    path_with(path, segment_count, nodes.len() as u64, |index| {
+        nodes[index]
+    })
+}
+/// Reads original absolute Boolean slots without copying or rebasing topology.
+pub(crate) fn path_with(
+    path: &wire::PathFill,
+    segment_count: u64,
+    node_count: u64,
+    read: impl FnMut(usize) -> wire::PathBooleanNode,
+) -> Option<u64> {
     if path.segment_count == 0
         || path.segment_offset > segment_count
         || path.segment_count > segment_count - path.segment_offset
@@ -155,7 +186,15 @@ pub(crate) fn path(
         || !finite(path.transform)
         || path.fill_rule > FILL_RULE_EVEN_ODD
         || !glyph_path_sampling(path.sample_grid)
-        || !path_boolean(path, nodes)
+        || !boolean_with(
+            path.segment_offset,
+            path.segment_count,
+            path.boolean_node_offset,
+            path.boolean_node_count,
+            path.fill_rule,
+            node_count,
+            read,
+        )
     {
         return None;
     }

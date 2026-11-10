@@ -42,7 +42,7 @@ pub use owned_shader::{
     OwnedShaderMetrics, OwnedShaderTargetFrame, ShaderEffectPreparationContext,
 };
 pub use source_capture::{CacheSamplerRaster, CaptureSourceIdentity, CapturedSourceScene};
-mod clear;
+pub(crate) mod clear;
 mod color_filter;
 pub use clear::{RenderSubmission, ReplayMetrics, TargetClearRequest};
 pub use color_filter::ColorFilterMetrics;

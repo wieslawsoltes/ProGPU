@@ -39,12 +39,15 @@ pub struct TargetClearRequest {
 }
 
 #[derive(Clone)]
-pub(super) struct ClearPipeline {
+pub(crate) struct ClearPipeline {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
 }
 impl ClearPipeline {
-    async fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Result<Self, Error> {
+    pub(crate) async fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, Error> {
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             // Original nonempty source identity is required by the pinned FXC path.
@@ -80,7 +83,11 @@ impl ClearPipeline {
             },
             primitive: Default::default(),
             depth_stencil: None,
-            multisample: Default::default(),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: u64::from(u32::MAX),
+                alpha_to_coverage_enabled: false,
+            },
             fragment: Some(wgpu::FragmentState {
                 module: &module,
                 entry_point: Some("fs_target_clear"),
@@ -100,7 +107,7 @@ impl ClearPipeline {
         Ok(Self { pipeline, layout })
     }
     #[allow(clippy::too_many_arguments)] // Actual device/queue/encoder/attachment plus one physical request.
-    fn encode(
+    pub(crate) fn encode(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,

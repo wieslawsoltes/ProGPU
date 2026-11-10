@@ -27,6 +27,18 @@ pub const PATH: &str = concat!(
 pub const GLYPH: &str = shader!("GlyphRasterizer");
 /// Binary glyph rasterization with unchanged dropout and continuation visits.
 pub const BINARY_GLYPH: &str = shader!("BinaryGlyphRasterizer");
+/// Original explicit independent RGB box coverage; ordinary glyph policy is unchanged.
+pub const GLYPH_RGB_RASTER: &str = concat!(
+    shader!("GlyphRasterizer"),
+    "\n",
+    shader!("GlyphRgbRasterizer")
+);
+/// Original ordered RGB contribution rounding with the shared source mask helpers.
+pub const GLYPH_RGB_COMPOSITE: &str = concat!(
+    shader!("TextMaskCommon"),
+    "\n",
+    shader!("GlyphRgbComposite")
+);
 /// Positioned text rendering.
 pub const TEXT: &str = concat!(
     shader!("TextGlyphGeometryCommon"),
@@ -180,6 +192,8 @@ pub const MODULES: &[(&str, &str)] = &[
     ("path", PATH),
     ("glyph", GLYPH),
     ("binary_glyph", BINARY_GLYPH),
+    ("glyph_rgb_raster", GLYPH_RGB_RASTER),
+    ("glyph_rgb_composite", GLYPH_RGB_COMPOSITE),
     ("text", TEXT),
     ("texture", TEXTURE),
     ("mip_generator", MIP_GENERATOR),

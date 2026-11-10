@@ -25,6 +25,8 @@ Latest connected continuation (2026-11-10), implementation only:
 
 | Port area | Newly connected implementation | Remaining qualification |
 | --- | --- | --- |
+| Native complete preflight and pages | Original layer/shader/draw admission, whole-scene budgets, CPU family compilation and combined immutable GPU resource preparation; exact storage Clear attachment replay | Ordered outer replay, nested capture/cache integration and all original qualification |
+| Native layer targets and RGB | Actual color/depth/effect allocations, stable cache slots, immutable frame rebinding, submission publication and original RGB occurrence kernels | Whole source-order integration, original source/pixel/runtime/browser/performance gates |
 | Native document flow | Nested blocks, shared table tracks/cells, exact width/anchor/collision passes, page/column breaks, retained paragraph generations and atomic import/copy/reflow | Original source/error/lifetime/browser/performance controls |
 | Native hinted font producer | Optional original signed FreeType dependency, exclusive safe library/face ownership, interpreter/MM/nominal-size/phase control, checked owned slots and existing cache/shaper/replay integration | Six-RID ABI, native dependency provisioning, original source/pixel/lifetime/package/performance gates; portable/browser providers remain independent |
 | Native font providers and catalog | Exact host/browser callback selection/cache, raw fallback preferences and fixed style variations; separate native metadata discovery, nominal cmap matching, file ownership, names/style/embedding and resident SFNT/SBIX writers | Native mmap/path-encoding host adapters and all original byte/error/callback/lifetime/browser/performance qualification |

@@ -47,7 +47,7 @@ pub(crate) fn tile(t: &wire::RgbGlyphTile, outlines: u32) -> bool {
     .into_iter()
     .all(f32::is_finite)
 }
-pub(super) fn validate_rgb_glyph_draw(input: &Input<'_>, c: &wire::Command) -> TransportResult<()> {
+pub(crate) fn validate_rgb_glyph_draw(input: &Input<'_>, c: &wire::Command) -> TransportResult<()> {
     let bad = || error(E::Value, c.payload_offset);
     if c.kind != 27 || c.resource_index >= input.header.resource_count || c.payload_size < 40 {
         return Err(bad());
