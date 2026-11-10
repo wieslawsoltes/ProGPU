@@ -1,5 +1,6 @@
 //! Owned image generations and original retained image drawing contracts.
-//! Pixels are never resampled on the CPU. Reconstruction uses canonical WGSL.
+//! Retained rendering uses canonical WGSL reconstruction. Explicit original
+//! codec/bitmap/pixmap producer APIs retain their separate CPU raster policies.
 use crate::{
     Error,
     geometry::{Affine, Mesh, VectorVertex},
@@ -20,10 +21,23 @@ pub use color_space::{
     ColorPrimariesCicp, ColorSpace, ColorSpaceIccProfile, ColorSpacePrimaries,
     ColorSpaceTransferFunction, ColorSpaceTransferFunctionKind, ColorSpaceXyz, ColorTransferCicp,
 };
+mod encoded;
 mod png;
+pub mod raster;
+pub use encoded::{
+    CodecAnimationBlend, CodecAnimationDisposal, CodecError, CodecFrameInfo, CodecOptions,
+    CodecResult, CodecScanlineOrder, DecodedImage, EncodedImageDecoder, EncodedImageError,
+    EncodedImageExecution, EncodedImageFormat, EncodedOrigin, EncodedRaster, EncodedRasterDecoder,
+    IconFrame, ImageCodec, ImageCrateRasterDecoder, IncrementalDecode, ZeroInitialized,
+    detect_encoded_format, read_png_color_space, select_icon_frame,
+};
 pub use png::{
     PngDecodeError, PngDecodeExecution, PngDecodeRequirements, PngDecoder, PngImageError,
     decode_png_rgba, png_decode_requirements,
+};
+pub use raster::{
+    Bitmap, ImageInfo, PixelAlphaType, PixelColorType, Pixmap, PixmapMut, RasterError,
+    RasterExecution, RasterFilterMode, RasterMipmapMode, RasterSampling, RasterSnapshot,
 };
 mod vertices;
 pub use vertices::{ImageBrush, TileImageDraw, TileImageSampling};
@@ -65,7 +79,11 @@ pub(crate) struct Pixels {
     pub format: ImageFormat,
     pub alpha: ImageAlpha,
     pub data: Arc<[u8]>,
+    // Actual producer lease, retained independently of frozen byte generations.
+    _owner: Option<Arc<dyn PixelOwner>>,
 }
+pub(crate) trait PixelOwner: std::fmt::Debug + Send + Sync {}
+impl<T: std::fmt::Debug + Send + Sync> PixelOwner for T {}
 /// Immutable original pixels, stride and alpha interpretation. Cloning shares
 /// the actual generation; new pixels require a new owner and cannot stale a draw.
 #[derive(Clone, Debug)]
@@ -98,6 +116,7 @@ impl Image {
             format,
             alpha,
             data,
+            _owner: None,
         })))
     }
     /// Create a tightly packed RGBA generation without changing pixel bytes.
@@ -113,6 +132,16 @@ impl Image {
             alpha,
             data,
         )
+    }
+    pub(crate) fn with_pixel_owner(self, owner: Arc<dyn PixelOwner>) -> Self {
+        Self(Arc::new(Pixels {
+            size: self.0.size,
+            stride: self.0.stride,
+            format: self.0.format,
+            alpha: self.0.alpha,
+            data: self.0.data.clone(),
+            _owner: Some(owner),
+        }))
     }
     /// Actual physical source extent.
     pub fn size(&self) -> [u32; 2] {

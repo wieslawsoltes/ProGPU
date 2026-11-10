@@ -1,7 +1,7 @@
 //! Original nine-family path effects; generated output stays analytic and owned.
 use super::{
-    FillRule, GeometryTolerance, MeasureCommand as C, MeasuredPath, MeasuredPathBuilder as Builder,
-    PathGeometry, PathMeasure,
+    FillRule, GeometryTolerance, Matrix4, MeasureCommand as C, MeasuredPath,
+    MeasuredPathBuilder as Builder, PathGeometry, PathMeasure,
 };
 use crate::Error;
 use std::sync::Arc;
@@ -156,6 +156,14 @@ pub struct PathEffectSource {
     inverse: bool,
 }
 impl PathEffectSource {
+    fn from_owned_geometry(geometry: PathGeometry, inverse: bool) -> Result<Self, Error> {
+        Ok(Self {
+            path: MeasuredPath::from_geometry(&geometry)?,
+            fill_rule: geometry.fill_rule,
+            geometry: Some(Arc::new(geometry)),
+            inverse,
+        })
+    }
     /// Retain original raw verbs and independent fill policy.
     pub fn new(path: MeasuredPath, fill_rule: FillRule, inverse: bool) -> Self {
         Self {
@@ -177,8 +185,8 @@ impl PathEffectSource {
     pub fn is_inverse(&self) -> bool {
         self.inverse
     }
-    /// Snapshot ordinary typed figures once; raw arcs/rational cubics require
-    /// their original raw-iterator conversion and remain explicit at this bridge.
+    /// Snapshot ordinary typed figures once, retaining original analytic arc-run
+    /// conics. Rational cubics/deferred Boolean paths have no matching raw contract.
     pub fn from_geometry(geometry: &PathGeometry, inverse: bool) -> Result<Self, Error> {
         Ok(Self {
             path: MeasuredPath::from_geometry(geometry)?,
@@ -562,6 +570,11 @@ fn stamps(
     }
     let mut measure = PathMeasure::new(Some(&source.path), false, scale)?;
     let mut out = Builder::default();
+    let stamp_geometry = stamp.geometry()?;
+    let mut placed = PathGeometry {
+        fill_rule: source.fill_rule,
+        ..Default::default()
+    };
     loop {
         let length = measure.length();
         let exact = if length <= phase {
@@ -592,15 +605,30 @@ fn stamps(
             } else {
                 EffectMatrix::translation(position)
             };
+            if style != PathStampStyle::Morph {
+                let mut copy = PathGeometry {
+                    fill_rule: stamp.fill_rule,
+                    ..Default::default()
+                };
+                append_figures(&mut copy, &stamp_geometry, [0.0; 2])?;
+                if matrix != EffectMatrix::IDENTITY {
+                    let [a, b, x, c, d, y, p, q, w] = matrix.0;
+                    copy = copy.transformed(Matrix4([
+                        [a, c, 0.0, p],
+                        [b, d, 0.0, q],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [x, y, 0.0, w],
+                    ]))?;
+                }
+                append_figures(&mut placed, &copy, [0.0; 2])?;
+                continue;
+            }
             for command in stamp.path.commands() {
                 out.push(map_command(*command, |local| {
-                    if style == PathStampStyle::Morph {
-                        measure
-                            .position_and_tangent(distance + local[0])
-                            .map_or([0.0; 2], |(p, t)| normal_offset(p, t, local[1]))
-                    } else {
-                        matrix.point(local)
-                    }
+                    let p = measure
+                        .position_and_tangent(distance + local[0])
+                        .map_or([0.0; 2], |(p, t)| normal_offset(p, t, local[1]));
+                    [p[0] + 0.0, p[1] + 0.0]
                 }))?;
             }
         }
@@ -608,13 +636,37 @@ fn stamps(
             break;
         }
     }
-    Ok(finish(source, out))
+    if style == PathStampStyle::Morph {
+        Ok(finish(source, out))
+    } else {
+        Ok((
+            true,
+            PathEffectSource::from_owned_geometry(placed, source.inverse)?,
+        ))
+    }
+}
+fn append_figures(
+    target: &mut PathGeometry,
+    source: &PathGeometry,
+    offset: [f32; 2],
+) -> Result<(), Error> {
+    if source.deferred.is_some() {
+        return Err(Error::UnsupportedExecution);
+    }
+    target
+        .figures
+        .try_reserve(source.figures.len())
+        .map_err(|_| Error::Capacity)?;
+    for figure in &source.figures {
+        target
+            .figures
+            .push(super::raw_path::copy_figure(figure, offset)?);
+    }
+    Ok(())
 }
 fn normal_offset(point: [f32; 2], tangent: [f32; 2], offset: f32) -> [f32; 2] {
-    let [x, y, _, _] = (V::from([point[0], point[1], 0.0, 0.0])
-        + V::from([-tangent[1], tangent[0], 0.0, 0.0]) * V::splat(offset))
-    .to_array();
-    [x, y]
+    let [x, y, _, _] = (V::from([tangent[1], tangent[0], 0.0, 0.0]) * V::splat(offset)).to_array();
+    [point[0] - x, point[1] + y]
 }
 fn map_command(command: C, mut map: impl FnMut([f32; 2]) -> [f32; 2]) -> C {
     match command {

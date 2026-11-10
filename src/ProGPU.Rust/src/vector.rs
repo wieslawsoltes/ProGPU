@@ -8,6 +8,8 @@ pub use path_effect::{
     DashIntervals, EffectMatrix, EffectPaintStyle, PaintAdjustment, PathEffect, PathEffectKind,
     PathEffectResult, PathEffectSource, PathStampStyle, TrimMode,
 };
+mod raw_path;
+pub use raw_path::{PathIterator, PathVerb, RawPathIterator};
 mod measure;
 pub use measure::{MeasureCommand, MeasuredPath, MeasuredPathBuilder, PathMeasure};
 mod arc;

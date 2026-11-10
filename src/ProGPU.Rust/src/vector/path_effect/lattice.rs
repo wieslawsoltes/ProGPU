@@ -244,7 +244,11 @@ pub(super) fn paths(
     if cols > LIMIT as i64 || rows > LIMIT as i64 || cols * rows > LIMIT as i64 {
         return Ok((false, empty));
     }
-    let mut out = Builder::default();
+    let stamp_geometry = stamp.geometry()?;
+    let mut placed = PathGeometry {
+        fill_rule: stamp.fill_rule,
+        ..Default::default()
+    };
     let mut generated = 0usize;
     for row in y0..=y1 {
         for column in x0..=x1 {
@@ -258,11 +262,11 @@ pub(super) fn paths(
             if generated > LIMIT {
                 return Ok((false, source.clone()));
             }
-            let translation = EffectMatrix::translation(p);
-            for command in stamp.path.commands() {
-                out.push(map_command(*command, |p| translation.point(p)))?;
-            }
+            append_figures(&mut placed, &stamp_geometry, p)?;
         }
     }
-    Ok(finish(stamp, out))
+    Ok((
+        true,
+        PathEffectSource::from_owned_geometry(placed, stamp.inverse)?,
+    ))
 }

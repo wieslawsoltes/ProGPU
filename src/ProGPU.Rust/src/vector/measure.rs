@@ -39,40 +39,10 @@ impl MeasuredPath {
     pub fn commands(&self) -> &[MeasureCommand] {
         &self.commands
     }
-    /// Capture typed line/quad/conic/cubic figures. Native analytic arcs and
-    /// rational cubics need their original raw-iterator lowering and reject here.
+    /// Capture original line/quad/conic/cubic figures and coalesced analytic arc
+    /// runs. Rational cubics/deferred Boolean paths have no matching raw contract.
     pub fn from_geometry(source: &PathGeometry) -> Result<Self, Error> {
-        if source.deferred.is_some() {
-            return Err(Error::UnsupportedExecution);
-        }
-        let mut commands = Vec::new();
-        for figure in &source.figures {
-            commands
-                .try_reserve(
-                    figure
-                        .segments
-                        .len()
-                        .checked_add(2)
-                        .ok_or(Error::Capacity)?,
-                )
-                .map_err(|_| Error::Capacity)?;
-            commands.push(MeasureCommand::Move(figure.start));
-            for segment in &figure.segments {
-                commands.push(match segment.kind {
-                    PathSegmentKind::Line(p) => MeasureCommand::Line(p),
-                    PathSegmentKind::Quadratic(p) => MeasureCommand::Quadratic(p),
-                    PathSegmentKind::Cubic(p) => MeasureCommand::Cubic(p),
-                    PathSegmentKind::RationalQuadratic { points, weight } => {
-                        MeasureCommand::Conic { points, weight }
-                    }
-                    _ => return Err(Error::UnsupportedExecution),
-                });
-            }
-            if figure.is_closed {
-                commands.push(MeasureCommand::Close);
-            }
-        }
-        Ok(Self::new(commands))
+        Ok(Self::new(super::raw_path::commands(source)?))
     }
     /// Publish analytic original command geometry; measurement samples are never
     /// used as drawn line segments. Close remains independent figure metadata.
@@ -92,7 +62,7 @@ impl MeasuredPath {
                 continue;
             }
             if matches!(command, MeasureCommand::Close) {
-                if let Some(index) = current {
+                if let Some(index) = current.take() {
                     let f = &mut result.figures[index];
                     f.is_closed = true;
                     last = f.start;
