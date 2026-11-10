@@ -30,7 +30,9 @@ original model-only geometry decisions and offscreen policy; text-derived path
 gamma includes the active camera. Receiving clip/scissor and source hit metadata
 remain independent. Source placement composes the camera, not the model geometry.
 
-Remaining explicit gates: late atlas/hinted text and native text transports,
+Ordinary atlas text now has its own connected late-camera route; see
+`late-camera-text-port.md` for the original post-compilation flag order and shared
+uniform distinction. Remaining explicit gates: hinted and native text transports,
 spline/extension/series/mesh/texture/backdrop commands, marked picture/visual/scope
 commands, non-affine model admission and Scene-to-archive export of this private
 execution wrapper. The original archive wire still retains source camera fields;

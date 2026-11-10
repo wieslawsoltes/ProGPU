@@ -129,6 +129,12 @@ impl TextState {
     ) -> Result<PreparedText, Error> {
         let device = &renderer.device;
         let limits = device.limits();
+        // Match vector preparation's actual last marked scene camera. The text
+        // flags are rewritten only after ordinary source style selection.
+        let frame = RenderFrame {
+            camera: compiled.camera,
+            ..frame
+        };
         let uniforms = frame.uniforms(limits.max_texture_dimension_2d)?;
         let placeholder = GpuTextStyle::zeroed();
         let styles = if resolved.styles.is_empty() {

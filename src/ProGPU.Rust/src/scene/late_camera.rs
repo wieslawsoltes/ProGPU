@@ -15,6 +15,9 @@ pub(super) fn validate(command: &Command, camera: Matrix4) -> Result<(), Error> 
     }
     match command {
         Command::Empty => Ok(()),
+        Command::Text(record) => text::validate_context(record.1),
+        #[cfg(feature = "gpu")]
+        Command::Glyph(instance) if instance.scale_bold_italic_flags[3].is_finite() => Ok(()),
         Command::ArchiveVector(draw) => draw.validate(),
         Command::ArchiveGeometry(draw) => draw.validate(),
         Command::Stroke(draw) | Command::PlacedStroke(draw, _) => draw.validate(),
@@ -42,6 +45,7 @@ impl Scene {
         self.commands
             .try_reserve(source.commands.len().max(1))
             .map_err(|_| Error::Capacity)?;
+        self.tree_text |= source.tree_text;
         if source.commands.is_empty() {
             self.commands
                 .push(Command::LateCamera(Box::new(Command::Empty), camera));

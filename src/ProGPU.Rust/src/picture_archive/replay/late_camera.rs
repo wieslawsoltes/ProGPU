@@ -13,7 +13,9 @@ pub(super) fn record(
 ) -> Result<()> {
     if !matches!(
         source.kind,
-        K::DrawRect
+        K::DrawText
+            | K::DrawGlyphRun
+            | K::DrawRect
             | K::DrawRoundedRect
             | K::DrawEllipse
             | K::DrawCircle
@@ -36,6 +38,9 @@ pub(super) fn record(
     let c = &command;
     let mut scene = Scene::default();
     match c.kind {
+        K::DrawText | K::DrawGlyphRun => {
+            text::draw(&mut scene, c, transform, opacity, options)?;
+        }
         K::DrawRect | K::DrawRoundedRect | K::DrawEllipse | K::DrawCircle => {
             // Texture/backdrop interception has its own pipeline/frame policy.
             if c.brush

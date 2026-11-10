@@ -15,6 +15,10 @@ pub(crate) use three_d::ThreeDBatch;
 pub use three_d::{ArchiveThreeDDraw, ThreeDRoute};
 mod hatch;
 mod static_hatch;
+mod static_dxf;
+pub use static_dxf::{StaticDxfBatch, StaticDxfBatchKind, StaticDxfBuffer, StaticDxfCompileOptions};
+#[cfg(feature = "gpu")]
+pub use static_dxf::{PreparedStaticDxf, StaticDxfEngine, StaticDxfMetrics, StaticDxfTarget, UploadedStaticDxf};
 pub use static_hatch::{StaticHatchBatch, StaticHatchBuffer, StaticHatchRoute, StaticHatchViewport};
 #[cfg(feature = "gpu")]
 pub use static_hatch::{

@@ -38,6 +38,7 @@ mod clear;
 mod color_filter;
 mod image_filter;
 mod late_camera;
+mod static_dxf;
 pub use clear::{ClearColor, TargetAlpha};
 mod coverage_scope;
 mod layer;
@@ -405,7 +406,8 @@ impl Scene {
     /// Record original text without shaping, loading outlines, or allocating GPU
     /// resources. The actual preparation frame supplies DPI. This renderer's
     /// current direct target accepts affine placement and semantic opacity;
-    /// late camera/MVP transforms and clips require their separate consumers.
+    /// late camera uses `draw_text_late_camera`; static MVP and clips retain
+    /// their separate source consumers.
     pub fn draw_text(&mut self, draw: TextDraw, context: TextPaintContext) -> Result<(), Error> {
         text::validate_context(context)?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
@@ -462,7 +464,7 @@ impl Scene {
     pub(crate) fn has_text(&self) -> bool {
         self.commands.iter().any(|command| {
             matches!(
-                command,
+                late_camera::split(command).0,
                 Command::Text(_) | Command::HintedText(_) | Command::NativeDesignAtlas(_)
             )
         })
@@ -470,9 +472,15 @@ impl Scene {
     /// Recorded text and its source context, in original scene order. CPU-only
     /// consumers can inspect/plan these records without any GPU dependency.
     pub fn text_commands(&self) -> impl Iterator<Item = (&TextDraw, TextPaintContext)> {
-        self.commands.iter().filter_map(|command| match command {
-            Command::Text(record) => Some((&record.0, record.1)),
-            _ => None,
+        self.commands.iter().filter_map(|command| {
+            let (command, camera) = late_camera::split(command);
+            match command {
+                Command::Text(record) => Some((
+                    &record.0,
+                    text::late_camera::inspect_context(record.1, camera),
+                )),
+                _ => None,
+            }
         })
     }
     /// Retain an original path stroke and its actual pen/material frame.
@@ -1201,7 +1209,12 @@ impl Scene {
                     let index = u32::try_from(glyphs.len()).map_err(|_| Error::Capacity)?;
                     let end = index.checked_add(1).ok_or(Error::Capacity)?;
                     glyphs.try_reserve(1).map_err(|_| Error::Capacity)?;
-                    glyphs.push(*instance);
+                    let mut instance = *instance;
+                    if late_cameras[command_index].is_some() {
+                        instance.scale_bold_italic_flags[3] =
+                            text::late_camera::force_use_mvp(instance.scale_bold_italic_flags[3]);
+                    }
+                    glyphs.push(instance);
                     append_draw(&mut draws, DrawRange::Text(index..end));
                 }
                 Command::Stroke(draw) | Command::PlacedStroke(draw, _) => {

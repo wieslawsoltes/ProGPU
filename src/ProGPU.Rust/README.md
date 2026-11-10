@@ -29,6 +29,7 @@ Latest connected continuation (2026-11-10), implementation only:
 | Native hinted font producer | Optional original signed FreeType dependency, exclusive safe library/face ownership, interpreter/MM/nominal-size/phase control, checked owned slots and existing cache/shaper/replay integration | Six-RID ABI, native dependency provisioning, original source/pixel/lifetime/package/performance gates; portable/browser providers remain independent |
 | Native font providers and catalog | Exact host/browser callback selection/cache, raw fallback preferences and fixed style variations; separate native metadata discovery, nominal cmap matching, file ownership, names/style/embedding and resident SFNT/SBIX writers | Native mmap/path-encoding host adapters and all original byte/error/callback/lifetime/browser/performance qualification |
 | Native color/bitmap font queries | Original COLR/CPAL, SVG/raw-gzip, sbix and CBLC/CBDT views, capacity-first decode and source renderability ordering | Full SVG layer execution and actual bitmap/source/provider/pixel qualification |
+| Font subsets | Native and managed glyph-ID-preserving/compact producers, independent malformed-composite policies, original remap/long loca/horizontal metrics/table checksums and atomic caller output | Original byte/error/capacity/ownership/browser/package/performance controls |
 | Font storage and residency | Safe owned/static/shared leases, exact SFNT/SBIX glyph extraction, demand bitmap cache, instance-identity matching and actual execution metrics | Native mapped storage explicitly unavailable; original byte/error/lifetime/performance and host-provider controls |
 | ImageEffect reuse | Completion-owned parameter/blur pools, original module/pipeline/sampler caches, tracked source/mip/view generations, explicit host-frame aging and actual reuse metrics | Original runtime/pixel/lifetime/browser/performance controls |
 | Surface root flushing | Flush/snapshot of the actual root while save layers remain open, retaining child state and atomic prepared ownership | Existing Rust clip continuation remains distinct; original repeated-flush/clip/backdrop/source pixels |
@@ -37,7 +38,8 @@ Latest connected continuation (2026-11-10), implementation only:
 | Image filter and picture factories | Exact subset/clip/offset filter application, optional context transfer, painted picture captures and full-sampling image/bitmap/surface Canvas producers | Original source/UV/lifetime/format/filter/browser/pixel/performance controls |
 | Target-dependent path and spline replay | Original rounded-path recognition/triangulation, final-target rectangle admission, text-path gamma and complete De Boor NURBS producers | Original numerical/target/byte/pixel/performance controls |
 | Hatch boundaries and execution | Exact retained segment/record inventories and canonical dedicated pipeline, preserving ordinary Vector versus explicit extension dispatch; immutable static-Hatch producer, buffers and per-target MSAA execution | Mixed static-DXF/source-provider integration and all source/runtime qualification |
-| Late-camera vectors | Original ordinary +100 route for fourteen analytic/path/stroke command kinds, per-command coverage camera, final shared target camera and exact brush/source placement | Remaining text/provider/extension families and all source/runtime/pixel/performance qualification |
+| Late-camera vectors/text | Original ordinary +100 route for fourteen vector/path/stroke kinds; text/glyph runs retain original shared-style/flag ordering, per-command coverage camera, final shared target camera and exact source placement | Remaining provider/extension families and all source/runtime/pixel/performance qualification; original hinted restrictions remain |
+| Mixed static DXF | Connected analytic/path/stroke/spline/mesh/Hatch compilation, original +200/clip/flag ordering, common immutable atlas/material uploads and ordered Vector/Hatch GPU draws | Scene extension0, text/providers/nested/3D and special mask/clip cases; all original qualification |
 | GPU line/scatter series | Separate built-in/extension shaders, exact side-buffer selection, immutable CPU/GPU generations, same-device ownership, bounded reuse and actual upload metrics | Original cold/warm, byte/NaN/float/pixel/device/browser/performance controls |
 | Bounded opacity masks | Original declared bounds, active clip, 2-pixel padding/16-pixel storage and direct R8 Vector/Text/HintedGlyphPaint/Texture capture | Unsupported original mask source families stay explicit; all original source/pixel/lifetime/performance gates |
 | Retained interaction | Original command cache/quadtree, strict immutable source-Visual/command/glyph ownership, exact clip/template traversal and paragraph-backed hinted interaction | Actual platform producer adapters and all source/input/lifetime qualification |
@@ -49,7 +51,7 @@ Latest connected continuation (2026-11-10), implementation only:
 | CustomGrid and spline extension | Original fullscreen grid shader/quad, and compile-only/no-draw spline extension4 behavior | Original primary multisample, source/runtime/browser/pixel/performance controls |
 
 
-Estimated scope completion: **overall about 67%, implementation about 86%, validation
+Estimated scope completion: **overall about 68%, implementation about 87%, validation
 and qualification about 20%**. These are judgment estimates, not measured coverage.
 
 The shared `--series` / browser `?scene=series` gallery authors twelve panels for
@@ -84,6 +86,13 @@ The [native host/browser provider](notes/native-font-provider-port.md),
 [color/bitmap font queries](notes/native-font-glyph-query-port.md) preserve their
 separate original selection and ownership policies. Safe host mapping and original
 Windows non-ASCII path encoding remain explicit provider boundaries.
+Both original [native subset producers](notes/native-font-subset-port.md) now
+expose immutable prepared output and capacity-first caller copies without invoking
+a font interpreter. Their full original byte/error/performance gates remain open.
+The separate managed subset facade retains its original malformed-input policies.
+[Ordinary late-camera text](notes/late-camera-text-port.md) and
+[mixed static DXF](notes/static-dxf-port.md) now have connected production routes;
+all new execution remains unvalidated.
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,

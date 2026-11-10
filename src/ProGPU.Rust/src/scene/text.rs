@@ -1,6 +1,7 @@
 //! Source Compositor/PathAtlas text placement, separate from native path defaults.
 use super::*;
 use crate::vector::Matrix4;
+pub(super) mod late_camera;
 
 fn affine(matrix: Matrix4) -> Result<Affine, Error> {
     let m = matrix.0;
@@ -289,15 +290,18 @@ impl Scene {
             .try_reserve_exact(self.commands.len())
             .map_err(|_| Error::Capacity)?;
         for command in &self.commands {
+            let (command, camera) = super::late_camera::split(command);
+            if let Some(camera) = camera {
+                super::late_camera::validate(command, camera)?;
+            }
             native_plans.push(if let Command::NativeDesignAtlas(draw) = command {
                 Some(draw.prepare(dpi)?)
             } else {
                 None
             });
             plans.push(if let Command::Text(record) = command {
-                let (draw, mut context) = record.as_ref().clone();
-                context.dpi_scale = dpi;
-                validate_context(context)?;
+                let (draw, context) = record.as_ref().clone();
+                let context = late_camera::context(context, camera, dpi)?;
                 Some(painter.plan(&draw, context).map_err(text_error)?)
             } else {
                 if let Command::HintedText(record) = command {
@@ -318,8 +322,12 @@ impl Scene {
         };
         let mut styles = Vec::new();
         let mut paths = HashMap::new();
-        for ((command, plan), native_plan) in self.commands.iter().zip(plans).zip(native_plans) {
+        for ((source_command, plan), native_plan) in
+            self.commands.iter().zip(plans).zip(native_plans)
+        {
+            let (command, camera) = super::late_camera::split(source_command);
             scene.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+            let command_start = scene.commands.len();
             if let Some(plan) = plan {
                 let (resolved, run_styles) = painter
                     .resolve_pending(atlas, plan)
@@ -345,7 +353,9 @@ impl Scene {
                             if instance.brush_index >= 0.0 {
                                 instance.brush_index += base as f32;
                             }
-                            scene.commands.push(Command::Glyph(instance));
+                            scene
+                                .commands
+                                .push(late_camera::wrap(Command::Glyph(instance), camera));
                         }
                         ResolvedTextCommand::Vector(path) => {
                             if path.brush.is_none() {
@@ -366,7 +376,7 @@ impl Scene {
                                         .entry(key)
                                         .or_insert((source, Some(draw.path.clone())));
                                 }
-                                scene.commands.push(command);
+                                scene.commands.push(late_camera::wrap(command, camera));
                             } else {
                                 paths.entry(key).or_insert((source, None));
                             }
@@ -432,7 +442,14 @@ impl Scene {
                     }
                 }
             } else {
-                scene.commands.push(command.clone());
+                scene.commands.push(source_command.clone());
+            }
+            if camera.is_some() && scene.commands.len() == command_start {
+                // Even a missing/empty glyph run updates the original shared
+                // frame camera. No synthetic glyph or path is emitted.
+                scene
+                    .commands
+                    .push(late_camera::wrap(Command::Empty, camera));
             }
         }
         atlas.end_batch().await?;

@@ -84,7 +84,16 @@ fn place_scene(
                 late_camera::validate(inner, *camera)?;
                 let camera = *camera * transform;
                 late_camera::validate(inner, camera)?;
-                Command::LateCamera(inner.clone(), camera)
+                let inner = if let Command::Text(record) = inner.as_ref() {
+                    let (draw, mut context) = record.as_ref().clone();
+                    // Cached-source suppression remains independent of late
+                    // camera placement and is applied before shared-style selection.
+                    context.suppress_cached_cleartype |= frame.suppress_cached_cleartype();
+                    Box::new(Command::Text(Box::new((draw, context))))
+                } else {
+                    inner.clone()
+                };
+                Command::LateCamera(inner, camera)
             }
             Command::Empty => Command::Empty,
             Command::CanvasTextPath(draw) => {
