@@ -21,6 +21,8 @@ pub enum NativeSourceError {
     #[error(transparent)]
     Geometry(#[from] NativeParagraphGeometryError),
     #[error(transparent)]
+    Replay(#[from] crate::text::font_policy::FontPolicyError),
+    #[error(transparent)]
     Paragraph(#[from] NativeParagraphError),
 }
 fn require(value: bool) -> Result<(), NativeSourceError> {

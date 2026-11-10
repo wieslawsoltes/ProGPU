@@ -86,10 +86,9 @@ semantics; this is not a recoverable-all-allocation guarantee.
 
 - Actual safe pinned FreeType binding/execution, producer receipts and original
   native/browser/RID/package/pixel/cold/warm/performance qualification remain open.
-- Original source nominal GlyphRun offset/frame APIs in
-  `progpu_native_hinted_source_run.cpp` and `progpu_native_hinted_source_frame.cpp`
-  are independent adapters; this increment does not claim those source-host
-  frames, RTL GlyphRun equivalence or ordinary Display/GDI/GDI+ admission.
+- Original nominal GlyphRun offset/frame APIs are implemented in the subsequent
+  `native-nominal-source-replay-port.md` increment. Source-host pixel qualification,
+  RTL GlyphRun equivalence and ordinary Display/GDI/GDI+ admission remain separate.
 - Generic unhinted paragraph inline objects, tabs, trimming, fragment/exclusion/
   floating layout, vertical paragraphs, source platform discovery and native
   context plan-cache/diagnostic counters remain separate layers.

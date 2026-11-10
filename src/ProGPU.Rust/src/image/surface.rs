@@ -109,6 +109,15 @@ pub struct RenderSurface<'pixels> {
     readback_regions: Option<Vec<[f32; 4]>>,
 }
 impl<'pixels> RenderSurface<'pixels> {
+    /// Actual source context. Null surfaces intentionally have no device owner.
+    pub fn context(&self) -> Option<&ImageContext> {
+        self.context.as_ref()
+    }
+    /// Borrow this actual surface exclusively for original stateful recording.
+    /// The lease never submits work from Drop; finish or flush is explicit.
+    pub fn canvas(&mut self) -> Result<crate::canvas::SurfaceCanvas<'_, 'pixels>, Error> {
+        crate::canvas::SurfaceCanvas::new(self)
+    }
     /// Create the original RGBA8 premultiplied offscreen target. Source color and
     /// alpha metadata remain independent of its actual GPU storage encoding.
     pub fn new(context: &ImageContext, info: ImageInfo) -> Result<Self, ImageResourceError> {

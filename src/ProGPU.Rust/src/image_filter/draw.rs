@@ -79,6 +79,24 @@ impl ImageFilteredImageDraw {
     /// Check every actual retained source image and nested picture generation,
     /// including branches that an eventual identity/empty result does not paint.
     pub fn preflight_source_devices(&self, device: &wgpu::Device) -> Result<(), Error> {
+        if let ImageSource::Gpu(image) = &self.draw.image {
+            if image.device() != device {
+                return Err(Error::ResourceDomain);
+            }
+        }
+        self.filter
+            .preflight_source_devices(device, self.request.maximum_steps)
+    }
+}
+#[cfg(feature = "gpu")]
+impl ImageFilter {
+    /// Visit every original owned source before any input capture or GPU work.
+    /// Identity and empty output shortcuts do not bypass device ownership.
+    pub fn preflight_source_devices(
+        &self,
+        device: &wgpu::Device,
+        maximum_steps: usize,
+    ) -> Result<(), Error> {
         fn image(source: &ImageSource, device: &wgpu::Device) -> Result<(), Error> {
             if let ImageSource::Gpu(image) = source {
                 if image.device() != device {
@@ -87,14 +105,13 @@ impl ImageFilteredImageDraw {
             }
             Ok(())
         }
-        image(&self.draw.image, device)?;
         let mut visited = std::collections::HashSet::new();
-        let mut pending = vec![&self.filter];
+        let mut pending = vec![self];
         while let Some(filter) = pending.pop() {
             if !visited.insert(filter.identity()) {
                 continue;
             }
-            if visited.len() > self.request.maximum_steps {
+            if visited.len() > maximum_steps {
                 return Err(Error::Capacity);
             }
             if let Some(input) = filter.input() {
@@ -132,7 +149,7 @@ impl ImageFilteredImageDraw {
                 }
                 K::DisplacementMap { displacement, .. } => pending.push(displacement),
                 K::Merge(children) => {
-                    if children.len() > self.request.maximum_steps.saturating_sub(pending.len()) {
+                    if children.len() > maximum_steps.saturating_sub(pending.len()) {
                         return Err(Error::Capacity);
                     }
                     pending.extend(children.iter().flatten());

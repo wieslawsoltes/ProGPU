@@ -3,6 +3,7 @@
 //! See the crate README for the parity ledger. Unported families are not silently
 //! approximated. GPU programs are embedded from the canonical production WGSL.
 
+pub mod canvas;
 pub mod composition;
 pub mod effects;
 pub mod font;
@@ -11,6 +12,7 @@ pub mod image;
 pub mod image_effect;
 pub mod image_filter;
 pub mod mask;
+pub mod paint;
 pub mod path;
 #[cfg(feature = "gpu")]
 pub mod renderer;
@@ -44,3 +46,6 @@ pub enum Error {
     #[error("WebGPU validation failed: {0}")]
     Gpu(#[from] wgpu::Error),
 }
+
+/// Original managed backdrop-material extension and retained source descriptors.
+pub mod backdrop;

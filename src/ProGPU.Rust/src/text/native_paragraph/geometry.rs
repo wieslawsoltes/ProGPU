@@ -10,6 +10,8 @@ use crate::{
 };
 mod admission;
 mod import;
+mod nominal;
+pub use nominal::*;
 mod paint;
 mod records;
 pub use paint::{NativeParagraphPaint, prepare_native_paragraph_draws};
@@ -108,7 +110,7 @@ impl NativeParagraphGeometry {
         projection: NativeHintedProjection,
         coverage: NativeHintedCoverage,
     ) -> Result<Self, NativeSourceError> {
-        if paragraph.options().pixels_per_dip as f32 != dpi {
+        if paragraph.options().pixels_per_dip != f64::from(dpi) {
             return Err(NativeSourceError::InvalidArgument);
         }
         Self::new_inner(
