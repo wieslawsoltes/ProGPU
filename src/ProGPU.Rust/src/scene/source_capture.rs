@@ -60,6 +60,12 @@ fn place_scene(
     for command in &source.commands {
         let placed = match command {
             Command::Empty => Command::Empty,
+            Command::CachedPicture(draw) => {
+                let mut placed = draw.as_ref().clone();
+                placed.transform = draw.transform * transform;
+                placed.validate()?;
+                Command::CachedPicture(Box::new(placed))
+            }
             // Target-storage Clear is deliberately independent of the source
             // matrix. Its actual inherited binary clip is placed separately.
             Command::Clear(color) => Command::Clear(*color),
@@ -425,13 +431,36 @@ fn inverse_placement(matrix: Matrix4) -> Result<Matrix4, Error> {
 #[cfg(feature = "gpu")]
 impl Scene {
     /// Inspect actual retained resource owners before an empty source shortcut.
-    /// No texture upload, font execution, cache mutation or provider callback is
-    /// needed to prove the creating device and complete source dimensions.
+    /// Refresh live cached sources before inspecting their exact owned recording.
+    /// No texture upload, font execution or GPU allocation occurs here.
     pub(crate) fn preflight_source_capture_devices(
         &self,
         device: &wgpu::Device,
     ) -> Result<(), Error> {
+        let _guard = SourcePreflightDepth::enter()?;
         preflight_devices(self, device, 0, 0)
+    }
+}
+#[cfg(feature = "gpu")]
+std::thread_local! { static SOURCE_PREFLIGHT_DEPTH: std::cell::Cell<u16> = const { std::cell::Cell::new(0) }; }
+#[cfg(feature = "gpu")]
+struct SourcePreflightDepth;
+#[cfg(feature = "gpu")]
+impl SourcePreflightDepth {
+    fn enter() -> Result<Self, Error> {
+        SOURCE_PREFLIGHT_DEPTH.with(|depth| {
+            if depth.get() >= 256 {
+                return Err(Error::Capacity);
+            }
+            depth.set(depth.get() + 1);
+            Ok(Self)
+        })
+    }
+}
+#[cfg(feature = "gpu")]
+impl Drop for SourcePreflightDepth {
+    fn drop(&mut self) {
+        SOURCE_PREFLIGHT_DEPTH.with(|depth| depth.set(depth.get() - 1));
     }
 }
 #[cfg(feature = "gpu")]
@@ -494,7 +523,10 @@ fn preflight_devices(
                 }
             }
             Command::ImageColor(draw) => image(&draw.draw.image)?,
-            Command::ColorFilteredImage(draw) => image(&draw.draw.image)?,
+            Command::ColorFilteredImage(draw) => {
+                image(&draw.draw.image)?;
+                draw.filter.preflight_source_devices(device)?;
+            }
             Command::ImageFilteredImage(draw) => draw.preflight_source_devices(device)?,
             Command::TileImage(draw) | Command::PlacedTileImage(draw, _) => image(&draw.image)?,
             Command::ImageEffect(draw) => {
@@ -509,6 +541,13 @@ fn preflight_devices(
                 }
                 if let Some(mask) = &draw.mask {
                     image(mask)?;
+                }
+            }
+            Command::CachedPicture(draw) => {
+                draw.validate()?;
+                if !draw.picture.is_closed() {
+                    let generation = draw.picture.freeze()?;
+                    preflight_devices(&generation.snapshot().scene, device, 0, owned_depth + 1)?;
                 }
             }
             Command::OwnedShaderEffect(draw) => {

@@ -186,6 +186,9 @@ pub enum ColorFilterKind {
     HighContrast(HighContrast),
     /// Original six straight RGBA8 palette entries.
     Overdraw([[u8; 4]; 6]),
+    /// Actual original runtime source and bindings. The managed image path
+    /// preserves its input; single-color evaluation keeps its original Clear.
+    Runtime(crate::runtime_effect::RuntimeEffectInstance),
 }
 #[derive(Debug)]
 struct Node {
@@ -196,6 +199,11 @@ struct Node {
 #[derive(Clone, Debug)]
 pub struct ColorFilter(Arc<Node>);
 impl ColorFilter {
+    pub(crate) fn from_runtime_instance(
+        instance: crate::runtime_effect::RuntimeEffectInstance,
+    ) -> Self {
+        Self::leaf(ColorFilterKind::Runtime(instance))
+    }
     fn node(kind: ColorFilterKind, depth: u16) -> Result<Self, Error> {
         if depth > 256 {
             return Err(Error::Capacity);
@@ -208,6 +216,13 @@ impl ColorFilter {
     /// Original node content and source-owner identities.
     pub fn kind(&self) -> &ColorFilterKind {
         &self.0.kind
+    }
+    /// Actual original reflected runtime instance, without executing source text.
+    pub fn runtime_effect(&self) -> Option<&crate::runtime_effect::RuntimeEffectInstance> {
+        match self.kind() {
+            ColorFilterKind::Runtime(instance) => Some(instance),
+            _ => None,
+        }
     }
     pub(crate) fn identity(&self) -> usize {
         Arc::as_ptr(&self.0) as usize

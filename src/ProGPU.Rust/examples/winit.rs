@@ -14,6 +14,8 @@ mod sample;
 use sample::sample_scene;
 #[path = "support/axis_clip_scene.rs"]
 mod axis_clip_sample;
+#[path = "support/cached_picture_scene.rs"]
+mod cached_picture_sample;
 #[path = "support/clear_scene.rs"]
 mod clear_sample;
 #[path = "support/color_filter_scene.rs"]
@@ -68,6 +70,7 @@ enum CompositeGallery {
     ColorFilters,
     ImageFilters,
     OwnedShaders,
+    CachedPictures,
 }
 
 struct WindowRenderer {
@@ -220,6 +223,8 @@ impl WindowRenderer {
             ))?
         } else if self.composite_gallery == CompositeGallery::ImageFilters {
             pollster::block_on(image_filter_sample::image_filter_scene())?
+        } else if self.composite_gallery == CompositeGallery::CachedPictures {
+            cached_picture_sample::cached_picture_scene()?
         } else if self.composite_gallery == CompositeGallery::OwnedShaders {
             pollster::block_on(owned_shader_sample::owned_shader_scene())?
         } else if self.composite_gallery == CompositeGallery::ColorFilters {
@@ -444,6 +449,7 @@ fn main() -> Result<()> {
             "--color-filters" => app.composite_gallery = CompositeGallery::ColorFilters,
             "--image-filters" => app.composite_gallery = CompositeGallery::ImageFilters,
             "--owned-shaders" => app.composite_gallery = CompositeGallery::OwnedShaders,
+            "--cached-pictures" => app.composite_gallery = CompositeGallery::CachedPictures,
             "--path-programs" => app.composite_gallery = CompositeGallery::PathPrograms,
             "--materialized-masks" => app.composite_gallery = CompositeGallery::MaterializedMasks,
             "--image-effects" => app.composite_gallery = CompositeGallery::ImageEffects,
@@ -463,7 +469,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

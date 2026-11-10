@@ -639,7 +639,9 @@ impl Renderer {
                 metrics.compute(&p)?;
                 Ok(Pass::Color(p))
             }
-            Operation::UnsupportedRuntimeBlender(_) => Err(Error::UnsupportedExecution),
+            Operation::UnsupportedRuntimeBlender(_) | Operation::RuntimeBlender(_) => {
+                Err(Error::UnsupportedExecution)
+            }
             Operation::ShaderSource {
                 source, transform, ..
             } => {

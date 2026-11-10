@@ -227,7 +227,9 @@ fn draw_cost(
                     source::preflight(renderer, source, *transform, step.size, depth + 1)?,
                 )?;
             }
-            Operation::UnsupportedRuntimeBlender(_) => return Err(Error::UnsupportedExecution),
+            Operation::UnsupportedRuntimeBlender(_) | Operation::RuntimeBlender(_) => {
+                return Err(Error::UnsupportedExecution);
+            }
             Operation::Transparent | Operation::Solid(_) => {}
         }
     }

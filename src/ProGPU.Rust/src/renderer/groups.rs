@@ -51,6 +51,8 @@ pub struct RetainedAaMetrics {
     pub source_image_filters: ImageFilterMetrics,
     /// Actual nested owned shader capture/cache preparation work.
     pub source_owned_shaders: OwnedShaderMetrics,
+    /// Cached-picture preparation inside this retained AA subtree.
+    pub source_cached_pictures: CachedPictureMetrics,
     /// Managed WGSL parameters and final-device shader draws in child targets.
     pub source_managed_shaders: crate::shader_effect::ManagedShaderMetrics,
 }
@@ -331,6 +333,8 @@ impl RetainedAaMetrics {
             .merge(other.source_image_filters)?;
         self.source_owned_shaders
             .merge(other.source_owned_shaders)?;
+        self.source_cached_pictures
+            .merge(other.source_cached_pictures)?;
         shader_effect::merge_metrics(&mut self.source_shaders, other.source_shaders)?;
         self.source_color_filters
             .merge(other.source_color_filters)?;
@@ -375,6 +379,8 @@ impl RetainedAaMetrics {
             .merge(nested.source_image_filters)?;
         self.source_owned_shaders
             .merge(nested.source_owned_shaders)?;
+        self.source_cached_pictures
+            .merge(nested.source_cached_pictures)?;
         shader_effect::merge_metrics(&mut self.source_shaders, nested.source_shaders)?;
         self.source_color_filters
             .merge(nested.source_color_filters)?;
@@ -385,6 +391,8 @@ impl RetainedAaMetrics {
             .merge(source.image_filter_metrics())?;
         self.source_owned_shaders
             .merge(source.owned_shader_metrics())?;
+        self.source_cached_pictures
+            .merge(source.cached_picture_metrics())?;
         shader_effect::merge_metrics(&mut self.source_shaders, source.shader_effect_metrics())?;
         self.source_color_filters
             .merge(source.color_filter_metrics())?;

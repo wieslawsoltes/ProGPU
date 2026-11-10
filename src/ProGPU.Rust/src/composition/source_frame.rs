@@ -20,6 +20,52 @@ pub struct SourceRenderFrame {
     image_filter: bool,
 }
 impl SourceRenderFrame {
+    /// Original ordinary CachedPicture layer capture. Logical projection keeps
+    /// the exact source extent; allocation uses ceil(size * DPI * cache scale).
+    /// Empty bounds and zero scale have no painted generation.
+    pub fn cached_picture(
+        source: &super::cached_picture::CachedPictureSnapshot,
+        dpi: f32,
+    ) -> Result<Option<Self>, Error> {
+        source.validate()?;
+        if !dpi.is_finite() || dpi <= 0.0 {
+            return Err(Error::InvalidInput);
+        }
+        let [x, y, w, h] = source.bounds;
+        if w <= 0.0 || h <= 0.0 || source.render_scale <= 0.0 {
+            return Ok(None);
+        }
+        let raster_scale = dpi * source.render_scale;
+        let physical =
+            (wide::f32x4::from([w, h, 0.0, 0.0]) * wide::f32x4::splat(raster_scale)).to_array();
+        let dimensions = [
+            w.ceil().max(1.0),
+            h.ceil().max(1.0),
+            physical[0].ceil().max(1.0),
+            physical[1].ceil().max(1.0),
+        ];
+        if !raster_scale.is_finite()
+            || raster_scale <= 0.0
+            || dimensions
+                .iter()
+                .any(|v| !v.is_finite() || f64::from(*v) > f64::from(u32::MAX))
+        {
+            return Err(Error::Capacity);
+        }
+        let mut placement = Matrix4::IDENTITY;
+        placement.0[3][0] = -x;
+        placement.0[3][1] = -y;
+        let mut frame = Self::create(
+            [dimensions[2] as u32, dimensions[3] as u32],
+            [w, h],
+            raster_scale,
+            placement,
+            !source.enable_cleartype,
+            false,
+        )?;
+        frame.logical_size = [dimensions[0] as u32, dimensions[1] as u32];
+        Ok(Some(frame))
+    }
     fn create(
         size: [u32; 2],
         logical_extent: [f32; 2],

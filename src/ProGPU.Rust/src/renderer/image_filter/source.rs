@@ -45,7 +45,9 @@ fn preflight_inner(
     let mut cost = (0, 0);
     let bytes = u64::from(size[0]) * u64::from(size[1]) * 4;
     match shader {
-        Shader::UnsupportedRuntime { .. } => return Err(Error::UnsupportedExecution),
+        Shader::UnsupportedRuntime { .. } | Shader::Runtime(_) => {
+            return Err(Error::UnsupportedExecution);
+        }
         Shader::Empty => {}
         Shader::Brush(brush) => {
             let brush = placed_brush(brush, local, transform, depth == 1)?;
@@ -223,7 +225,9 @@ fn prepare_inner<'a>(
             return Err(Error::Capacity);
         }
         match shader {
-            Shader::UnsupportedRuntime { .. } => Err(Error::UnsupportedExecution),
+            Shader::UnsupportedRuntime { .. } | Shader::Runtime(_) => {
+                Err(Error::UnsupportedExecution)
+            }
             Shader::Empty => {
                 scene_pass(renderer, Scene::default(), size, None, sampling, metrics).await
             }

@@ -36,7 +36,7 @@ impl PreparedScene {
     }
 }
 impl Renderer {
-    fn source_target(&self, source: SourceRenderFrame) -> Result<RenderFrame, Error> {
+    pub(super) fn source_target(&self, source: SourceRenderFrame) -> Result<RenderFrame, Error> {
         let maximum = self.device.limits().max_texture_dimension_2d;
         if let Some(cache) = source.cache_frame()
             && cache.maximum_dimensions() != [maximum; 2]

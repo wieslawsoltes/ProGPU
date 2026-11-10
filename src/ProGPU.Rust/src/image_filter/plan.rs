@@ -161,6 +161,8 @@ pub enum ImageFilterOperation {
     TransferToSrgb(ImageFilterColorSpace),
     /// Original evaluator rejects this runtime blender; it is never SrcOver.
     UnsupportedRuntimeBlender(Arc<str>),
+    /// Original reflected runtime blender with complete retained bindings.
+    RuntimeBlender(crate::runtime_effect::RuntimeEffectInstance),
 }
 impl ImageFilterOperation {
     /// Whether this operation requires original retained source replay rather
@@ -174,7 +176,7 @@ impl ImageFilterOperation {
     /// Original explicitly unsupported runtime owner, without claiming execution.
     pub fn is_explicitly_unsupported(&self) -> bool {
         match self {
-            Self::UnsupportedRuntimeBlender(_) => true,
+            Self::UnsupportedRuntimeBlender(_) | Self::RuntimeBlender(_) => true,
             Self::ShaderSource { source, .. } => !matches!(source.runtime_support(), Ok(true)),
             _ => false,
         }
@@ -402,7 +404,8 @@ impl Builder {
                     )
                     .ok_or(Error::Capacity)?;
             }
-            ImageFilterOperation::UnsupportedRuntimeBlender(_) => {
+            ImageFilterOperation::UnsupportedRuntimeBlender(_)
+            | ImageFilterOperation::RuntimeBlender(_) => {
                 textures = 0;
             }
             _ => {
@@ -707,6 +710,7 @@ impl Builder {
                     FilterBlender::UnsupportedRuntime(owner) => {
                         O::UnsupportedRuntimeBlender(owner.clone())
                     }
+                    FilterBlender::Runtime(owner) => O::RuntimeBlender(owner.clone()),
                 };
                 self.emit(&inputs, size, 1, operation)?
             }

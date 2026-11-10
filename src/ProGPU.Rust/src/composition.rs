@@ -2,6 +2,8 @@
 use crate::{Error, mask::MaskUniforms};
 use bytemuck::Zeroable;
 
+pub mod cached_picture;
+pub mod visual;
 mod raster_operation;
 pub use raster_operation::{RasterOperation, RasterPattern};
 mod cache_sampler;

@@ -87,42 +87,6 @@ impl ImageFilteredImageDraw {
             }
             Ok(())
         }
-        fn shader(
-            source: &super::FilterShaderSource,
-            device: &wgpu::Device,
-            depth: usize,
-            count: &mut usize,
-        ) -> Result<(), Error> {
-            *count = count.checked_add(1).ok_or(Error::Capacity)?;
-            if depth >= 256 || *count > 16_384 {
-                return Err(Error::Capacity);
-            }
-            use super::FilterShaderSource as S;
-            match source {
-                S::Image { source, .. } => image(&source.image, device)?,
-                S::Picture { source, .. } => {
-                    source.scene.preflight_source_capture_devices(device)?
-                }
-                S::Compose {
-                    background,
-                    foreground,
-                    ..
-                } => {
-                    shader(background, device, depth + 1, count)?;
-                    shader(foreground, device, depth + 1, count)?;
-                }
-                S::LocalMatrix { source, .. } | S::ColorFilter { source, .. } => {
-                    shader(source, device, depth + 1, count)?
-                }
-                S::UnsupportedRuntime { children, .. } => {
-                    for child in children.iter() {
-                        shader(child, device, depth + 1, count)?;
-                    }
-                }
-                _ => {}
-            }
-            Ok(())
-        }
         image(&self.draw.image, device)?;
         let mut visited = std::collections::HashSet::new();
         let mut pending = vec![&self.filter];
@@ -143,7 +107,8 @@ impl ImageFilteredImageDraw {
                 K::Shader {
                     source: Some(source),
                     ..
-                } => shader(source, device, 0, &mut 0)?,
+                } => source.preflight_source_devices(device)?,
+                K::ColorFilter(color_filter) => color_filter.preflight_source_devices(device)?,
                 K::Compose { outer, inner } => {
                     pending.push(outer);
                     pending.push(inner);
@@ -152,12 +117,16 @@ impl ImageFilteredImageDraw {
                     background,
                     foreground,
                     ..
+                } => {
+                    pending.extend(background);
+                    pending.extend(foreground);
                 }
-                | K::BlendMode {
+                K::BlendMode {
+                    blender,
                     background,
                     foreground,
-                    ..
                 } => {
+                    blender.preflight_source_devices(device)?;
                     pending.extend(background);
                     pending.extend(foreground);
                 }

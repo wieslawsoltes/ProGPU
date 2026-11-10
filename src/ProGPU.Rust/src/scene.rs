@@ -25,6 +25,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub mod animation;
+mod cached_picture;
+pub use cached_picture::CachedPictureDraw;
 mod axis_clip;
 pub use axis_clip::AxisClipDraw;
 #[cfg(feature = "gpu")]
@@ -186,6 +188,7 @@ impl MaterialPaint {
 #[derive(Clone, Debug)]
 enum Command {
     Empty,
+    CachedPicture(Box<CachedPictureDraw>),
     Clear(ClearColor),
     Layer(Box<LayerDraw>),
     ImageEffect(Box<crate::image_effect::ImageEffectDraw>),
@@ -568,6 +571,7 @@ impl Scene {
                 | Command::ManagedShaderEffect(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
                 Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
+                Command::CachedPicture(_) => return Err(Error::UnsupportedExecution),
                 Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
                     return Err(Error::UnsupportedExecution);
                 }
@@ -824,6 +828,7 @@ impl Scene {
                 }
                 #[cfg(feature = "gpu")]
                 Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
+                Command::CachedPicture(_) => return Err(Error::UnsupportedExecution),
                 Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
                     return Err(Error::UnsupportedExecution);
                 }

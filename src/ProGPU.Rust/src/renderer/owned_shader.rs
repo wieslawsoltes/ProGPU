@@ -158,6 +158,7 @@ impl PreparedScene {
 pub(super) struct OwnedShaderFrame<'a> {
     pub renderer: &'a mut Renderer,
     checkpoint: usize,
+    cached_checkpoint: usize,
     owner: Arc<()>,
     complete: bool,
 }
@@ -174,12 +175,14 @@ impl<'a> OwnedShaderFrame<'a> {
                 .swap(0, std::sync::atomic::Ordering::Relaxed);
             if completed != 0 {
                 state.targets.retain(|t| t.last_used == completed);
+                renderer.cached_pictures.sweep(completed);
             }
             state.frame = state.frame.checked_add(1).ok_or(Error::Capacity)?;
         }
         state.depth = state.depth.checked_add(1).ok_or(Error::Capacity)?;
         Ok(Self {
             checkpoint: state.targets.len(),
+            cached_checkpoint: renderer.cached_pictures.targets.len(),
             owner: renderer.owner.clone(),
             renderer,
             complete: false,
@@ -201,6 +204,10 @@ impl Drop for OwnedShaderFrame<'_> {
         let state = &mut self.renderer.owned_shaders;
         if !self.complete {
             state.targets.truncate(self.checkpoint);
+            self.renderer
+                .cached_pictures
+                .targets
+                .truncate(self.cached_checkpoint);
         }
         state.depth = state.depth.saturating_sub(1);
     }

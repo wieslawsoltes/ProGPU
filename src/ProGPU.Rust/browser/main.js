@@ -74,6 +74,9 @@ window.progpuReady = (async () => {
     renderer.select_image_filter_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'cached-pictures') {
+    renderer.select_cached_picture_scene(true);
+  }
   if (new URLSearchParams(location.search).get('scene') === 'owned-shaders') {
     renderer.select_owned_shader_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);

@@ -276,6 +276,7 @@ impl Renderer {
         Ok(())
     }
     fn color_filter_cost(&self, draw: &ColorFilteredImageDraw) -> Result<(u64, u32), Error> {
+        draw.filter.preflight_source_devices(&self.device)?;
         draw.draw.validate()?;
         let plan = draw.plan()?;
         let size = draw.draw.image.size();

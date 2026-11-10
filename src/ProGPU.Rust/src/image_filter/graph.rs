@@ -229,8 +229,40 @@ pub enum FilterShaderSource {
         /// Original ordered child shader owners.
         children: Arc<[FilterShaderSource]>,
     },
+    /// Complete original reflected program, exact uniform generation, nullable
+    /// typed children and shader-local matrix. The producer has no SkSL executor.
+    Runtime(crate::runtime_effect::RuntimeEffectInstance),
 }
 impl FilterShaderSource {
+    /// Original shader-composition factory: fixed modes and arithmetic are
+    /// admitted independently; a runtime blender rejects before publication.
+    pub fn blend(
+        blender: &FilterBlender,
+        background: Arc<Self>,
+        foreground: Arc<Self>,
+    ) -> Result<Self, Error> {
+        let (mode, arithmetic) = match blender {
+            FilterBlender::Mode(mode) => (*mode, None),
+            FilterBlender::Arithmetic(parameters) => (LayerBlend::SrcOver, Some(*parameters)),
+            FilterBlender::Runtime(_) | FilterBlender::UnsupportedRuntime(_) => {
+                return Err(Error::UnsupportedExecution);
+            }
+        };
+        Ok(Self::Compose {
+            background,
+            foreground,
+            mode,
+            arithmetic,
+        })
+    }
+    /// Actual original reflected runtime instance; wrappers retain their own
+    /// source identity and are not flattened by this query.
+    pub fn runtime_effect(&self) -> Option<&crate::runtime_effect::RuntimeEffectInstance> {
+        match self {
+            Self::Runtime(instance) => Some(instance),
+            _ => None,
+        }
+    }
     /// Whether every retained shader owner has an implemented source category.
     /// Runtime language sources stay unsupported through arbitrary wrappers.
     /// Bounded traversal rejects excess depth/work rather than inventing paint.
@@ -245,7 +277,9 @@ impl FilterShaderSource {
                 return Err(Error::Capacity);
             }
             match source {
-                FilterShaderSource::UnsupportedRuntime { .. } => Ok(false),
+                FilterShaderSource::UnsupportedRuntime { .. } | FilterShaderSource::Runtime(_) => {
+                    Ok(false)
+                }
                 FilterShaderSource::Compose {
                     background,
                     foreground,
@@ -305,6 +339,42 @@ pub enum FilterBlender {
     Arithmetic(FilterArithmetic),
     /// Actual unresolved runtime source; execution rejects this owner.
     UnsupportedRuntime(Arc<str>),
+    /// Actual original reflected runtime blender and immutable typed bindings.
+    Runtime(crate::runtime_effect::RuntimeEffectInstance),
+}
+impl FilterBlender {
+    /// Original arithmetic factory rejects any nonfinite coefficient before
+    /// publication; enforcement remains an independent immutable flag.
+    pub fn arithmetic(coefficients: [f32; 4], enforce_premultiplied: bool) -> Option<Self> {
+        coefficients
+            .iter()
+            .all(|v| v.is_finite())
+            .then_some(Self::Arithmetic(FilterArithmetic {
+                coefficients,
+                enforce_premultiplied,
+            }))
+    }
+    /// Original fixed-mode query, unavailable for arithmetic/runtime owners.
+    pub fn blend_mode(&self) -> Option<LayerBlend> {
+        match self {
+            Self::Mode(mode) => Some(*mode),
+            _ => None,
+        }
+    }
+    /// Original arithmetic query, independent of fixed blend modes.
+    pub fn arithmetic_parameters(&self) -> Option<FilterArithmetic> {
+        match self {
+            Self::Arithmetic(parameters) => Some(*parameters),
+            _ => None,
+        }
+    }
+    /// Actual original runtime source/bindings; no fabricated mode fallback.
+    pub fn runtime_effect(&self) -> Option<&crate::runtime_effect::RuntimeEffectInstance> {
+        match self {
+            Self::Runtime(instance) => Some(instance),
+            _ => None,
+        }
+    }
 }
 /// Original convolution data, copied atomically by its factory.
 #[derive(Clone, Debug)]

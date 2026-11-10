@@ -62,6 +62,8 @@ pub struct LayerMetrics {
     pub source_image_filters: ImageFilterMetrics,
     /// Actual nested owned shader capture/cache preparation work.
     pub source_owned_shaders: OwnedShaderMetrics,
+    /// Actual cached-picture generations prepared in captured child targets.
+    pub source_cached_pictures: CachedPictureMetrics,
     /// Managed WGSL parameters and final-device shader draws in child targets.
     pub source_managed_shaders: crate::shader_effect::ManagedShaderMetrics,
 }
@@ -200,12 +202,17 @@ impl Renderer {
         let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
         let (filter_bytes, filter_passes) = self.preflight_color_filters(scene)?;
         let (image_filter_bytes, image_filter_passes) = self.preflight_image_filters(scene)?;
+        let (cached_bytes, cached_passes) = self.preflight_cached_pictures(scene, frame)?;
         let (mask_bytes, mask_passes) = self.mask_resource_cost(scene, &states, &changes, frame)?;
         *bytes = bytes
-            .checked_add(effect_bytes + mask_bytes + filter_bytes + image_filter_bytes)
+            .checked_add(
+                effect_bytes + mask_bytes + filter_bytes + image_filter_bytes + cached_bytes,
+            )
             .ok_or(Error::Capacity)?;
         *passes = passes
-            .checked_add(effect_passes + mask_passes + filter_passes + image_filter_passes)
+            .checked_add(
+                effect_passes + mask_passes + filter_passes + image_filter_passes + cached_passes,
+            )
             .ok_or(Error::Capacity)?;
         if *bytes > 512 * 1024 * 1024 || *passes > 16 * 1024 {
             return Err(Error::Capacity);
@@ -325,7 +332,10 @@ impl Renderer {
     ) -> Result<PreparedScene, Error> {
         use crate::scene::{GroupOutput, GroupRef};
         self.preflight_owned_shaders(scene, frame)?;
-        let (resolved_owned, owned) = self.prepare_owned_shader_scene(scene, frame).await?;
+        let (resolved_cached, cached) = self.prepare_cached_picture_scene(scene, frame).await?;
+        let (resolved_owned, owned) = self
+            .prepare_owned_shader_scene(&resolved_cached, frame)
+            .await?;
         let scene = &resolved_owned;
         let mut groups = PreparedGroups::default();
         if let Some(root) = fixed_root {
@@ -334,6 +344,7 @@ impl Renderer {
         if scene.layer_depth() == 0 {
             let mut prepared = self.prepare_flat_scene(scene, frame, groups).await?;
             prepared.owned_shaders = owned;
+            prepared.cached_pictures = cached;
             return Ok(prepared);
         }
         let (states, changes) = scene.compile_states(frame.dpi_scale)?;
@@ -432,6 +443,7 @@ impl Renderer {
         let mut prepared = self.prepare_flat_scene(&resolved, frame, groups).await?;
         prepared.layers = metrics;
         prepared.owned_shaders = owned;
+        prepared.cached_pictures = cached;
         self.refresh_private_text_tree(&mut prepared)?;
         Ok(prepared)
     }
@@ -443,6 +455,8 @@ impl LayerMetrics {
             .merge(other.source_image_filters)?;
         self.source_owned_shaders
             .merge(other.source_owned_shaders)?;
+        self.source_cached_pictures
+            .merge(other.source_cached_pictures)?;
         shader_effect::merge_metrics(&mut self.source_shaders, other.source_shaders)?;
         self.source_color_filters
             .merge(other.source_color_filters)?;
@@ -538,6 +552,10 @@ impl LayerMetrics {
             .merge(child.source_image_filters)?;
         self.source_owned_shaders
             .merge(child.source_owned_shaders)?;
+        self.source_cached_pictures
+            .merge(child.source_cached_pictures)?;
+        self.source_cached_pictures
+            .merge(scene.cached_picture_metrics())?;
         self.source_masks.merge(scene.mask_composition_metrics())?;
         self.source_image_filters
             .merge(scene.image_filter_metrics())?;
@@ -546,6 +564,8 @@ impl LayerMetrics {
         self.source_masks.merge(aa.source_masks)?;
         self.source_image_filters.merge(aa.source_image_filters)?;
         self.source_owned_shaders.merge(aa.source_owned_shaders)?;
+        self.source_cached_pictures
+            .merge(aa.source_cached_pictures)?;
         shader_effect::merge_metrics(&mut self.source_shaders, child.source_shaders)?;
         self.source_color_filters
             .merge(child.source_color_filters)?;

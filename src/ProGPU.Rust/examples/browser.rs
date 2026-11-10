@@ -4,6 +4,8 @@
 #[cfg(target_arch = "wasm32")]
 #[path = "support/axis_clip_scene.rs"]
 mod axis_clip_sample;
+#[path = "support/cached_picture_scene.rs"]
+mod cached_picture_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/clear_scene.rs"]
 mod clear_sample;
@@ -1707,6 +1709,7 @@ mod web {
         color_filter_scene: bool,
         image_filter_scene: bool,
         owned_shader_scene: bool,
+        cached_picture_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
@@ -1798,6 +1801,7 @@ mod web {
             color_filter_scene: false,
             image_filter_scene: false,
             owned_shader_scene: false,
+            cached_picture_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
@@ -1845,6 +1849,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1878,6 +1883,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1900,6 +1906,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1921,6 +1928,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1942,6 +1950,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1963,6 +1972,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1984,6 +1994,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -2005,6 +2016,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -2026,6 +2038,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -2047,6 +2060,7 @@ mod web {
             self.color_filter_scene = false;
             self.image_filter_scene = false;
             self.owned_shader_scene = false;
+            self.cached_picture_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -2092,6 +2106,13 @@ mod web {
         pub fn select_image_filter_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
             self.image_filter_scene = enabled;
+            Ok(())
+        }
+        /// Select shared immutable cached-picture source generations.
+        pub fn select_cached_picture_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_compositor_scene(false)?;
+            self.cached_picture_scene = enabled;
+            self.scene = None;
             Ok(())
         }
         /// Select owned nested shader recipes at their actual physical targets.
@@ -2163,6 +2184,11 @@ mod web {
                     super::image_filter_sample::image_filter_scene()
                         .await
                         .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.cached_picture_scene {
+                (
+                    super::cached_picture_sample::cached_picture_scene().map_err(error)?,
                     Default::default(),
                 )
             } else if self.owned_shader_scene {

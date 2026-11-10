@@ -52,6 +52,9 @@ fn matrix(source: [f32; 4], m: ImageColorMatrix) -> [f32; 4] {
 }
 pub(super) fn apply(filter: &ColorFilter, source: [u8; 4]) -> [u8; 4] {
     match filter.kind() {
+        // Original runtime instances have no matrix/table/luma or retained
+        // nonlinear policy, so SKColorFilter.Apply reaches default Clear.
+        ColorFilterKind::Runtime(_) => [0; 4],
         ColorFilterKind::Compose { outer, inner } => apply(outer, apply(inner, source)),
         ColorFilterKind::Lerp {
             weight,

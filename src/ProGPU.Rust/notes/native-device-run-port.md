@@ -129,11 +129,12 @@ fallback-space/mark/stretch and Verify ports supply their existing algorithms.
 ## Ownership, allocation and remaining work
 
 The safe provider trait is an explicit producer boundary, not evidence of a
-working hinted implementation. The actual native dependency version/loaded-image
-ownership checks, exclusive interpreter context/cache, request selection,
-`FT_Load_Glyph` execution and raw outline capture still require a Rust-compatible
-actual producer/FFI implementation. The independent dependency scalar oracle,
-paired unfitted replay/scan transfer, native outline transport/replay writers,
+working hinted implementation. The subsequent [producer lifecycle/cache/writer port](native-hinted-producer-port.md)
+connects original owned face selection, exclusive cache, sequential raw slot
+capture, fixed-width copies and owned physical geometry to an explicit safe
+backend. The actual FreeType binding, prepared receipt verification and loaded
+image observation still require the real dependency backend implementation. The independent dependency scalar oracle,
+paired unfitted replay/scan transfer, retained shaped-source replay,
 source GDI/GDI+/DirectWrite raster-policy adapters, paragraph fallback/itemization,
 package/browser integration and original pixels remain independent work. The
 previously documented original native Hangul flag mismatch remains unchanged.

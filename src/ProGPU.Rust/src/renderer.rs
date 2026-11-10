@@ -24,7 +24,9 @@ pub use uniform_backdrop::{
 };
 mod axis_clip;
 pub use axis_clip::{AxisClipMetrics, AxisClipPass, AxisClipReplayMetrics, PreparedAxisClip};
+mod cached_picture;
 mod capture;
+pub use cached_picture::{CachedPictureMetrics, CachedPictureRaster};
 mod owned_shader;
 mod source_capture;
 pub use owned_shader::{
@@ -184,6 +186,7 @@ pub struct PreparedScene {
     shaders: Option<shader_effect::PreparedShaders>,
     managed_shaders: Option<managed_shader::PreparedManagedShaders>,
     owned_shaders: owned_shader::PreparedOwnedShaders,
+    cached_pictures: cached_picture::PreparedCachedPictures,
     owned_shader_frame: u64,
     advanced: Option<advanced::PreparedAdvanced>,
     clears: Option<clear::PreparedClears>,
@@ -282,6 +285,7 @@ pub struct Renderer {
     shader_engine: Option<crate::shader_effect::ShaderEffectEngine>,
     managed_shader_engine: Option<crate::shader_effect::ManagedShaderEngine>,
     owned_shaders: owned_shader::OwnedShaderState,
+    cached_pictures: cached_picture::CachedPictureState,
     owned_shader_completed: std::sync::atomic::AtomicU64,
     masks: Option<mask::MaskState>,
     materialized_masks: Option<materialized_mask::MaterialMaskState>,
@@ -424,6 +428,7 @@ impl Renderer {
             shader_engine: None,
             managed_shader_engine: None,
             owned_shaders: Default::default(),
+            cached_pictures: Default::default(),
             owned_shader_completed: Default::default(),
             masks: None,
             materialized_masks: None,
@@ -502,12 +507,15 @@ impl Renderer {
             let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
             let (filter_bytes, filter_passes) = self.preflight_color_filters(scene)?;
             let (image_filter_bytes, image_filter_passes) = self.preflight_image_filters(scene)?;
+            let (cached_bytes, cached_passes) = self.preflight_cached_pictures(scene, target)?;
             let (states, changes) = scene.compile_states(target.dpi_scale)?;
             self.validate_mask_states(&states)?;
             let (mask_bytes, mask_passes) =
                 self.mask_resource_cost(scene, &states, &changes, target)?;
-            if effect_bytes + mask_bytes + filter_bytes + image_filter_bytes > 512 * 1024 * 1024
-                || effect_passes + mask_passes + filter_passes + image_filter_passes > 16384
+            if effect_bytes + mask_bytes + filter_bytes + image_filter_bytes + cached_bytes
+                > 512 * 1024 * 1024
+                || effect_passes + mask_passes + filter_passes + image_filter_passes + cached_passes
+                    > 16384
             {
                 return Err(Error::Capacity);
             }
@@ -823,6 +831,7 @@ impl Renderer {
             shaders: None,
             managed_shaders: None,
             owned_shaders: Default::default(),
+            cached_pictures: Default::default(),
             owned_shader_frame: self.owned_shaders.frame_number(),
             advanced: None,
             clears: None,

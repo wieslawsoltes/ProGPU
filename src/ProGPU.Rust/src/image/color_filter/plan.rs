@@ -63,6 +63,13 @@ impl ColorFilterPlan {
                 return Ok(found);
             }
             let (inputs, operation) = match filter.kind() {
+                // Original RenderColorFilter falls through to ApplyFilterCrop
+                // of the input when no recognized operation exists. Keep the
+                // actual owner in this plan rather than fabricating a program.
+                ColorFilterKind::Runtime(_) => {
+                    memo.insert(key, input);
+                    return Ok(input);
+                }
                 ColorFilterKind::Compose { outer, inner } => {
                     let inner = visit(inner, input, steps, memo, maximum)?;
                     let output = visit(outer, inner, steps, memo, maximum)?;
