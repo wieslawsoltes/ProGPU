@@ -24,6 +24,12 @@ pub mod scene_builder {
     include!("scene_builder.rs");
 }
 
+/// The C ABI over the engine's font stack (`native/progpu_native_font_c.h`): the system font
+/// catalog, faces from bytes, tables, metrics and unhinted glyph outlines, linked statically.
+pub mod font {
+    include!("font.rs");
+}
+
 /// The wgpu-native WebGPU C ABI, with the native-object interop of the fork.
 pub mod webgpu {
     include!("webgpu.rs");

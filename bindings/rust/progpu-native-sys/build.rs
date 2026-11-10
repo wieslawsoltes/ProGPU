@@ -1,7 +1,7 @@
 //! Builds the ProGPU native engine for the target from the ProGPU sources and links it statically:
 //! the renderer archive (`progpu_native_static`, the engine without a WebGPU library: its WebGPU
 //! calls are linked to the wgpu-native crate, a dependency of this crate) with the archives it is
-//! made of, and the C ABI over the retained scene builder (`native/`).
+//! made of, and the C ABIs of `native/` over the retained scene builder and the font stack.
 //!
 //! The sources are `PROGPU_SOURCE_DIR`, or the ProGPU checkout this crate is part of
 //! (`bindings/rust/progpu-native-sys`, as in a git submodule of ProGPU). The engine is built with
@@ -68,16 +68,19 @@ fn main() {
     let sdk = root.join("sdk");
     println!("cargo:include={}", include.display());
     println!("cargo:sdk={}", sdk.display());
-    compile_scene_builder(&include, &sdk);
+    compile_native_abis(&include, &sdk);
 }
 
-/// Compiles the C ABI over the retained scene builder (`native/`) and links it with the static
-/// builder of the SDK.
-fn compile_scene_builder(include: &Path, sdk: &Path) {
-    println!("cargo:rerun-if-changed=native/progpu_native_scene_builder_c.cpp");
-    println!("cargo:rerun-if-changed=native/progpu_native_scene_builder_c.h");
+/// Compiles the C ABIs of `native/` (over the retained scene builder and over the font stack) and
+/// links them with the static archives of the SDK.
+fn compile_native_abis(include: &Path, sdk: &Path) {
     let mut build = cc::Build::new();
-    build.cpp(true).std("c++20").include(include).include("native").file("native/progpu_native_scene_builder_c.cpp");
+    build.cpp(true).std("c++20").include(include).include("native");
+    for name in ["progpu_native_scene_builder_c", "progpu_native_font_c"] {
+        println!("cargo:rerun-if-changed=native/{name}.cpp");
+        println!("cargo:rerun-if-changed=native/{name}.h");
+        build.file(format!("native/{name}.cpp"));
+    }
     if env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         build.flag("-fvisibility=hidden");
     }

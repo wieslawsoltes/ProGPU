@@ -25,3 +25,18 @@ Crates that compile C or C++ against the SDK read `DEP_PROGPU_NATIVE_INCLUDE`,
 
 `tests/headless.rs` creates a wgpu-native device, the engine on it, renders a frame of rectangles
 and reads it back.
+
+## Fonts and text
+
+The `font` module is a C ABI over the engine's own font stack (`native/progpu_native_font_c.h`,
+compiled by the build script against the engine's static text library):
+
+- the font catalog: the system fonts or given directories, family matching by weight, width and
+  slant, and the fallback face of a character (optionally for a language and excluding a face);
+- faces, of the catalog or of font bytes a host supplies: tables, metrics, names, the glyph of a
+  character, advances, the variation coordinates a style resolves to, and unhinted glyph outlines
+  in font design units as line, quadratic and cubic segments (TrueType, CFF and CFF2, with
+  variations).
+
+Shaping is `progpu_native_text_context_*` of the engine's C ABI (the `progpu` module), over the
+bytes of a face. `tests/font.rs` covers both.
