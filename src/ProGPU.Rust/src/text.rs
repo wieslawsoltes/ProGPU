@@ -12,6 +12,7 @@ pub mod layout;
 pub mod managed_pipeline;
 mod managed_shaping;
 pub mod native_layout;
+pub mod native_paragraph;
 pub mod native_pipeline;
 pub mod paint;
 pub use font_face::{ManagedShapingFontFace, ShapingFontFace, ShapingGlyphExtents};
