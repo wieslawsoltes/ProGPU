@@ -38,6 +38,9 @@ include = [
     "/src/ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl",
     "/src/ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl",
     "/src/ProGPU.Compute/Shaders/GroupDropShadowCompose.wgsl",
+    "/src/ProGPU.Compute/Shaders/DropShadow.wgsl",
+    "/src/ProGPU.Compute/Shaders/ShadowBlurHorizontal.wgsl",
+    "/src/ProGPU.Compute/Shaders/ShadowBlurVertical.wgsl",
     "/src/ProGPU.Text/UnicodeNormalizationData.bin",
 ]
 

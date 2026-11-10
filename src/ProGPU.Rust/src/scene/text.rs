@@ -271,6 +271,12 @@ impl Scene {
                 validate_context(context)?;
                 Some(painter.plan(&draw, context).map_err(text_error)?)
             } else {
+                if let Command::HintedText(record) = command {
+                    let mut context = record.1;
+                    context.dpi_scale = dpi;
+                    validate_context(context)?;
+                    record.0.validate_atlas_paint(context)?;
+                }
                 None
             });
         }
@@ -336,6 +342,40 @@ impl Scene {
                                 paths.entry(key).or_insert((source, None));
                             }
                         }
+                    }
+                }
+            } else if let Command::HintedText(record) = command {
+                let mut context = record.1;
+                context.dpi_scale = dpi;
+                let resolved = record.0.resolve_pending(atlas, context).await?;
+                let base = styles.len();
+                let count = base
+                    .checked_add(resolved.styles.len())
+                    .ok_or(Error::Capacity)?;
+                if count > (1 << 24) {
+                    return Err(Error::Capacity);
+                }
+                styles
+                    .try_reserve(resolved.styles.len())
+                    .map_err(|_| Error::Capacity)?;
+                styles.extend_from_slice(&resolved.styles);
+                scene
+                    .commands
+                    .try_reserve(resolved.instances.len())
+                    .map_err(|_| Error::Capacity)?;
+                if let Some(paint) = resolved.material {
+                    scene.commands.push(Command::HintedGlyphPaint(Box::new(
+                        crate::text::hinted_replay::HintedMaterialInstances {
+                            instances: resolved.instances,
+                            paint,
+                        },
+                    )));
+                } else {
+                    for mut instance in resolved.instances {
+                        if instance.brush_index >= 0.0 {
+                            instance.brush_index += base as f32;
+                        }
+                        scene.commands.push(Command::Glyph(instance));
                     }
                 }
             } else {

@@ -58,8 +58,9 @@ No foreign implementation is used. Prior DESIGN.md CPU ownership/render-resource
 architecture references remain applicable. Safe immutable owners and exclusive
 borrows replace disposal/locking hazards; all variable-sized Vec copies reserve
 fallibly, with Arc allocations following the existing crate contract. Actual
-FreeType backend/receipt/origin verification, renderer binding of these retained
-font placements, shaped paragraph/source adapters and original provider/package/
+FreeType backend/receipt/origin verification, shaped paragraph/source adapters and original provider/package/
 browser/pixel/performance evidence remain separate. No compiler, tests, lint,
 browser, benchmarks or fixtures were run/authored; formatting only. No build,
 trace or result artifacts were generated.
+
+Captured placement renderer binding is now connected; see `native-hinted-replay-port.md`.

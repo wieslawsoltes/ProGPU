@@ -20,6 +20,63 @@ pub struct SourceRenderFrame {
     image_filter: bool,
 }
 impl SourceRenderFrame {
+    /// Original ordinary visual layer target. Optional caches project the integer
+    /// logical bookkeeping extent; required caches project the exact visual size.
+    pub(crate) fn visual_layer(
+        size: [f32; 2],
+        dpi: f32,
+        scale: f32,
+        required: bool,
+        suppress: bool,
+    ) -> Result<Option<Self>, Error> {
+        if size.iter().any(|v| !v.is_finite())
+            || !scale.is_finite()
+            || !dpi.is_finite()
+            || dpi <= 0.0
+        {
+            return Err(Error::InvalidInput);
+        }
+        if size.iter().any(|v| *v <= 0.0) || scale <= 0.0 {
+            return Ok(None);
+        }
+        let raster = dpi * scale;
+        let logical = size.map(|v| v.ceil().max(1.0));
+        let pixels = size.map(|v| (v * raster).ceil().max(1.0));
+        if !raster.is_finite()
+            || raster <= 0.0
+            || pixels
+                .iter()
+                .chain(&logical)
+                .any(|v| !v.is_finite() || f64::from(*v) > f64::from(u32::MAX))
+        {
+            return Err(Error::Capacity);
+        }
+        let mut result = Self::create(
+            pixels.map(|v| v as u32),
+            if required { size } else { logical },
+            raster,
+            Matrix4::IDENTITY,
+            suppress,
+            false,
+        )?;
+        result.logical_size = logical.map(|v| v as u32);
+        Ok(Some(result))
+    }
+    /// Internal compile-space descriptor: no raster allocation is inferred from
+    /// a visual transform. The caller independently owns the actual target.
+    pub(crate) fn visual_placement(
+        transform: Matrix4,
+        dpi: f32,
+        suppress: bool,
+    ) -> Result<Self, Error> {
+        let mut result = Self::image_filter([1, 1], transform)?;
+        if !dpi.is_finite() || dpi <= 0.0 {
+            return Err(Error::InvalidInput);
+        }
+        result.dpi = dpi;
+        result.suppress_cached_cleartype = suppress;
+        Ok(result)
+    }
     /// Original ordinary CachedPicture layer capture. Logical projection keeps
     /// the exact source extent; allocation uses ceil(size * DPI * cache scale).
     /// Empty bounds and zero scale have no painted generation.

@@ -338,10 +338,12 @@ impl Renderer {
         textures: &mut HashSet<(u8, usize)>,
     ) -> Result<(GpuImage, MaskCompositionMetrics), Error> {
         let size = [frame.width, frame.height];
-        let has_analytic = source
-            .components
-            .iter()
-            .any(|c| matches!(c.mask, Mask::Analytic(_) | Mask::AxisClipEdges(_)));
+        let has_analytic = source.components.iter().any(|c| {
+            matches!(
+                c.mask,
+                Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::FrameAnalytic(_)
+            )
+        });
         let pipeline = if has_analytic {
             Some(state.coverage(&self.device).await?)
         } else {
@@ -393,7 +395,7 @@ impl Renderer {
                     path_program = Some(prepared);
                     (image, uniforms, MaskSampling::Nearest, None)
                 }
-                Mask::Analytic(_) | Mask::AxisClipEdges(_) => {
+                Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::FrameAnalytic(_) => {
                     let direct =
                         CompiledDrawState::direct(component.mask.clone(), frame.dpi_scale)?;
                     let binding =
@@ -415,6 +417,18 @@ impl Renderer {
                         Some(binding),
                     )
                 }
+                Mask::RenderedTexture(mask) => (
+                    cache.image(
+                        &self.device,
+                        &self.queue,
+                        &mask.texture.source,
+                        uploads,
+                        textures,
+                    )?,
+                    mask.uniforms(frame.origin),
+                    mask.texture.sampling,
+                    None,
+                ),
                 _ => {
                     let sampled = match &component.mask {
                         Mask::Coverage(c) => c.clone().into(),
@@ -601,7 +615,12 @@ fn mask_cost(
         let analytic = source
             .components
             .iter()
-            .filter(|c| matches!(c.mask, Mask::Analytic(_) | Mask::AxisClipEdges(_)))
+            .filter(|c| {
+                matches!(
+                    c.mask,
+                    Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::FrameAnalytic(_)
+                )
+            })
             .count();
         bytes = bytes
             .checked_add(

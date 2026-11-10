@@ -8,8 +8,12 @@ use crate::{
     },
 };
 
+mod hinted;
+use hinted::{HintedPaintState, PreparedHintedPaint};
+
 pub(super) struct TextState {
     pub pipeline: wgpu::RenderPipeline,
+    pub hinted: Option<HintedPaintState>,
     atlas: GlyphAtlas,
     painter: TextPainter,
 }
@@ -17,6 +21,7 @@ pub(super) struct PreparedText {
     pub instances: wgpu::Buffer,
     pub bindings: wgpu::BindGroup,
     pub atlas: wgpu::BindGroup,
+    hinted: Option<PreparedHintedPaint>,
     residency: GlyphAtlasResidency,
     statistics: GlyphAtlasStatistics,
 }
@@ -67,6 +72,7 @@ impl TextState {
         let atlas = GlyphAtlas::new(device, &renderer.queue, renderer.text_options).await?;
         Ok(Self {
             pipeline,
+            hinted: None,
             atlas,
             painter: TextPainter::default(),
         })
@@ -200,7 +206,17 @@ impl TextState {
             resolved.coverage.texture(),
             resolved.color.texture(),
         );
+        let hinted = if compiled.hinted_paints.is_empty() {
+            None
+        } else {
+            Some(self.hinted.as_ref().ok_or(Error::ResourceDomain)?.upload(
+                device,
+                &uniform_buffer,
+                compiled,
+            )?)
+        };
         Ok(PreparedText {
+            hinted,
             instances,
             bindings,
             atlas,
@@ -262,6 +278,9 @@ impl Renderer {
             self.image_sampling
                 .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
         )?;
+        if !compiled.hinted_paints.is_empty() && state.hinted.is_none() {
+            state.hinted = Some(HintedPaintState::new(self).await?);
+        }
         let mut prepared = self
             .prepare_compiled_geometry(&compiled, frame, groups)
             .await?;
@@ -277,8 +296,17 @@ impl Renderer {
                 std::mem::size_of_val(compiled.glyphs.as_slice()) as u64;
             prepared.metrics.glyph_instances =
                 u32::try_from(compiled.glyphs.len()).map_err(|_| Error::Capacity)?;
-            prepared.metrics.text_style_bytes =
-                (resolved.styles.len().max(1) * size_of::<GpuTextStyle>()) as u64;
+            prepared.metrics.text_style_bytes = (resolved.styles.len().max(1)
+                * size_of::<GpuTextStyle>()
+                + compiled.hinted_paints.len()
+                    * size_of::<crate::text::hinted_replay::GpuHintedGlyphPaint>())
+                as u64;
+            if !compiled.hinted_paints.is_empty() {
+                prepared.metrics.material_bytes += (compiled.materials().brushes().len().max(1)
+                    * size_of::<GpuBrush>()
+                    + compiled.materials().records().len().max(1) * size_of::<GpuGradientStop>())
+                    as u64;
+            }
             prepared.metrics.uniform_bytes += size_of::<Uniforms>() as u64;
             prepared.text = Some(state.upload(self, &compiled, resolved, frame)?);
         }

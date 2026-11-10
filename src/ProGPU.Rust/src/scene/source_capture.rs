@@ -9,6 +9,27 @@ use crate::{
 use wide::f32x4 as V;
 
 impl Scene {
+    /// Place an original visual page before geometry/text planning and apply
+    /// inherited visual opacity to its individual draws, preserving Clear.
+    pub(crate) fn place_visual_page(
+        &self,
+        transform: Matrix4,
+        dpi: f32,
+        suppress: bool,
+        opacity: f32,
+        reset_late_camera: bool,
+    ) -> Result<Self, Error> {
+        if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
+            return Err(Error::InvalidInput);
+        }
+        if !reset_late_camera {
+            self.preflight_visual_camera()?;
+        }
+        let frame = SourceRenderFrame::visual_placement(transform, dpi, suppress)?;
+        let mut result = self.place_source_capture(frame)?;
+        apply_opacity(&mut result, opacity)?;
+        Ok(result)
+    }
     /// Place an immutable source recording into an actual implicit-input or raw
     /// cache capture. The complete candidate is admitted before publication;
     /// neither source commands nor their path/font/image generations are changed.
@@ -133,6 +154,17 @@ fn place_scene(
                 };
                 Command::PlacedStroke(placed, fill_brush)
             }
+            Command::HintedText(record) => {
+                let (draw, mut context) = *record.clone();
+                context.transform = context.transform * transform;
+                context.dpi_scale = frame.dpi_scale();
+                context.use_mvp = false;
+                context.gpu_transforms_active = false;
+                context.camera_view = Matrix4::IDENTITY;
+                context.suppress_cached_cleartype |= frame.suppress_cached_cleartype();
+                draw.validate(context)?;
+                Command::HintedText(Box::new((draw, context)))
+            }
             Command::Text(record) => {
                 let (draw, mut context) = *record.clone();
                 // RenderOffscreenCore clears active late-camera compilation.
@@ -207,6 +239,7 @@ fn place_scene(
             Command::ShaderEffect(_)
             | Command::ManagedShaderEffect(_)
             | Command::ResolvedAxis(_)
+            | Command::HintedGlyphPaint(_)
             | Command::Glyph(_) => {
                 // All four carry an already-selected target/atlas generation.
                 // Owned source scopes above prepare in this actual target; no
@@ -244,6 +277,10 @@ fn place_mask(mask: &Mask, transform: Matrix4) -> Result<Mask, Error> {
     mask.validate()?;
     let mut placed = mask.clone();
     match &mut placed {
+        #[cfg(feature = "gpu")]
+        Mask::RenderedTexture(_) | Mask::FrameAnalytic(_) => {
+            return Err(Error::UnsupportedExecution);
+        }
         Mask::Analytic(source) if source.policy == AnalyticMaskPolicy::AxisClipArea => {
             if !axis_aligned(transform) {
                 return Err(Error::UnsupportedExecution);
@@ -510,6 +547,9 @@ fn preflight_devices(
             Command::PushMask(mask) | Command::PushMaskDifference(mask) => match mask.as_ref() {
                 Mask::Coverage(mask) => extent(mask.image.size())?,
                 Mask::Texture(mask) => image(&mask.source)?,
+                Mask::RenderedTexture(_) | Mask::FrameAnalytic(_) => {
+                    return Err(Error::UnsupportedExecution);
+                }
                 Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::Path(_) => {}
             },
             Command::Image(draw, _, _, operation) => {
@@ -520,6 +560,12 @@ fn preflight_devices(
                 }) = operation
                 {
                     image(pattern)?;
+                }
+            }
+            Command::HintedText(record) => {
+                record.0.validate(record.1)?;
+                if let Some(brush) = &record.0.image_brush {
+                    image(&brush.draw.image)?;
                 }
             }
             Command::ImageColor(draw) => image(&draw.draw.image)?,
@@ -557,6 +603,7 @@ fn preflight_devices(
             Command::ShaderEffect(_)
             | Command::ManagedShaderEffect(_)
             | Command::ResolvedAxis(_)
+            | Command::HintedGlyphPaint(_)
             | Command::Glyph(_) => return Err(Error::UnsupportedExecution),
             _ => {}
         }
@@ -633,5 +680,143 @@ impl Scene {
         self.scope_depth = depth;
         self.has_scopes = true;
         Ok(())
+    }
+}
+
+// Original active-opacity stack affects source draws rather than isolating each
+// visual. A retained explicit ordinary layer owns its own composite boundary.
+fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
+    for command in &mut scene.commands {
+        match command {
+            Command::Analytic(v) => v.color[3] *= opacity,
+            Command::Path(v) => v.color[3] *= opacity,
+            Command::MaterialAnalytic(_, p)
+            | Command::MaterialPath(_, p)
+            | Command::TextPath(_, p, _) => p.semantic_opacity *= opacity,
+            Command::Stroke(v) | Command::PlacedStroke(v, _) => v.semantic_opacity *= opacity,
+            Command::Text(v) => v.1.semantic_opacity *= opacity,
+            Command::HintedText(v) => {
+                v.1.semantic_opacity *= opacity;
+                v.0.validate(v.1)?;
+            }
+            Command::Image(v, _, _, _) => v.opacity *= opacity,
+            Command::ImageColor(v) => v.draw.opacity *= opacity,
+            Command::ColorFilteredImage(v) => v.draw.opacity *= opacity,
+            Command::ImageFilteredImage(v) => v.draw.opacity *= opacity,
+            Command::ImageEffect(v) => {
+                for vertex in &mut v.vertices {
+                    vertex.color[3] *= opacity;
+                }
+            }
+            Command::TileImage(v) | Command::PlacedTileImage(v, _) => v.opacity *= opacity,
+            Command::CachedPicture(v) => v.opacity *= opacity,
+            #[cfg(feature = "gpu")]
+            Command::OwnedShaderEffect(v) => v.opacity *= opacity,
+            Command::Layer(v) => v.opacity *= opacity,
+            Command::AxisClip(v) => {
+                let mut child = v.scene().clone();
+                apply_opacity(&mut child, opacity)?;
+                **v = v.placed(Arc::new(child), v.bounds_edges());
+            }
+            #[cfg(feature = "gpu")]
+            Command::ShaderEffect(_)
+            | Command::ManagedShaderEffect(_)
+            | Command::ResolvedAxis(_)
+            | Command::Glyph(_)
+            | Command::HintedGlyphPaint(_) => return Err(Error::UnsupportedExecution),
+            Command::Empty
+            | Command::Clear(_)
+            | Command::PopScope
+            | Command::PushClip(_)
+            | Command::PushClipEdges(_)
+            | Command::PushMask(_)
+            | Command::PushMaskDifference(_) => {}
+        }
+    }
+    Ok(())
+}
+
+impl Scene {
+    /// Managed visual rectangle clips use the original near-axis test. Geometry
+    /// clips retain their full transformed path and original antialias grid.
+    pub(crate) fn push_visual_clip(
+        &mut self,
+        bounds: [f32; 4],
+        transform: Matrix4,
+    ) -> Result<(Option<[f32; 4]>, Option<Mask>), Error> {
+        let edges = bounds_edges(bounds)?;
+        affine(transform)?;
+        let m = transform.0;
+        if m[0][1].abs() <= 0.0001 && m[1][0].abs() <= 0.0001 {
+            let edges = storage_edges(edges, transform)?;
+            self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+            self.scope_depth = self.scope_depth.checked_add(1).ok_or(Error::Capacity)?;
+            self.has_scopes = true;
+            self.commands.push(Command::PushClipEdges(edges));
+            return Ok((Some(edges), None));
+        }
+        if bounds[2] == 0.0 || bounds[3] == 0.0 {
+            self.push_clip_rect([0.0; 4])?;
+            return Ok((Some([0.0; 4]), None));
+        }
+        let [l, t, r, b] = edges;
+        let points = [[l, t], [r, t], [r, b], [l, b]];
+        let path = crate::path::Path::new(
+            (0..4)
+                .map(|i| crate::path::Segment::line(points[i], points[(i + 1) % 4]))
+                .collect(),
+            edges,
+            crate::path::FillRule::NonZero,
+        )?;
+        let mut clip = crate::mask::ClipPath::new(path);
+        clip.transform = affine(transform)?;
+        let mask = Mask::Path(clip);
+        self.push_mask(mask.clone())?;
+        Ok((None, Some(mask)))
+    }
+    pub(crate) fn draw_visual_image(
+        &mut self,
+        draw: ImageDraw,
+        blend: LayerBlend,
+    ) -> Result<(), Error> {
+        draw.validate()?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands
+            .push(Command::Image(Box::new(draw), blend, None, None));
+        Ok(())
+    }
+}
+
+impl Scene {
+    fn preflight_visual_camera(&self) -> Result<(), Error> {
+        for command in &self.commands {
+            match command {
+                Command::Text(record) if record.1.use_mvp || record.1.gpu_transforms_active => {
+                    return Err(Error::UnsupportedExecution);
+                }
+                Command::HintedText(record)
+                    if record.1.use_mvp || record.1.gpu_transforms_active =>
+                {
+                    return Err(Error::UnsupportedExecution);
+                }
+                Command::Layer(layer) => layer.scene.preflight_visual_camera()?,
+                Command::AxisClip(axis) => axis.scene().preflight_visual_camera()?,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+    // Live source recipes have their own revision/target protocols. A containing
+    // visual cache must realize them again until that source identity is part of
+    // its own cache key; immutable ordinary pages remain reusable.
+    pub(crate) fn visual_page_cacheable(&self) -> bool {
+        self.commands.iter().all(|command| match command {
+            Command::CachedPicture(_) => false,
+            #[cfg(feature = "gpu")]
+            Command::OwnedShaderEffect(_) => false,
+            Command::Layer(layer) => layer.scene.visual_page_cacheable(),
+            Command::AxisClip(axis) => axis.scene().visual_page_cacheable(),
+            _ => true,
+        })
     }
 }

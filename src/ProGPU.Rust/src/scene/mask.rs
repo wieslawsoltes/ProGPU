@@ -41,13 +41,20 @@ impl CompiledDrawState {
         components
             .try_reserve_exact(self.components.len() + 1)
             .map_err(|_| Error::Capacity)?;
-        components.extend_from_slice(&self.components);
+        #[cfg(feature = "gpu")]
+        let replace = matches!(&mask, Mask::RenderedTexture(v) if v.replaces_chain)
+            || matches!(&mask, Mask::FrameAnalytic(v) if v.replaces_chain);
+        #[cfg(not(feature = "gpu"))]
+        let replace = false;
+        if !replace {
+            components.extend_from_slice(&self.components);
+        }
         components.push(MaskComponent { mask, operation });
         let direct = components.len() <= 4
             && components.iter().enumerate().all(|(i, c)| {
                 c.operation == MaskOperation::Intersect
                     && !matches!(c.mask, Mask::Path(_))
-                    && (i == 0 || matches!(c.mask, Mask::Analytic(_) | Mask::AxisClipEdges(_)))
+                    && (i == 0 || analytic(&c.mask))
             });
         self.masks = [MaskUniforms::zeroed(); 4];
         self.coverage = None;
@@ -68,6 +75,8 @@ impl CompiledDrawState {
             self.coverage = match &components[0].mask {
                 Mask::Coverage(mask) => Some(mask.clone().into()),
                 Mask::Texture(mask) => Some(mask.clone()),
+                #[cfg(feature = "gpu")]
+                Mask::RenderedTexture(mask) => Some(mask.texture.clone()),
                 _ => None,
             };
         }
@@ -312,5 +321,14 @@ impl Scene {
             return Err(Error::InvalidInput);
         }
         Ok((states, changes))
+    }
+}
+
+fn analytic(mask: &Mask) -> bool {
+    match mask {
+        Mask::Analytic(_) | Mask::AxisClipEdges(_) => true,
+        #[cfg(feature = "gpu")]
+        Mask::FrameAnalytic(_) => true,
+        _ => false,
     }
 }

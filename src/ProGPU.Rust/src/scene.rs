@@ -74,6 +74,8 @@ pub(crate) enum DrawRange {
     Vector(std::ops::Range<u32>),
     #[cfg(feature = "gpu")]
     Text(std::ops::Range<u32>),
+    #[cfg(feature = "gpu")]
+    HintedText(std::ops::Range<u32>, u32, Option<usize>),
     Image(std::ops::Range<u32>, usize, LayerBlend),
     #[cfg(feature = "gpu")]
     Advanced(AdvancedImage),
@@ -218,9 +220,17 @@ enum Command {
     // Independent local material if directed-cap preparation selects fill coverage.
     PlacedStroke(StrokeDraw, Arc<Brush>),
     Text(Box<(TextDraw, TextPaintContext)>),
+    HintedText(
+        Box<(
+            crate::text::hinted_replay::HintedReplayDraw,
+            TextPaintContext,
+        )>,
+    ),
     TextPath(PathDraw, MaterialPaint, TextPathPolicy),
     #[cfg(feature = "gpu")]
     Glyph(GlyphInstance),
+    #[cfg(feature = "gpu")]
+    HintedGlyphPaint(Box<crate::text::hinted_replay::HintedMaterialInstances>),
     Image(
         Box<ImageDraw>,
         LayerBlend,
@@ -338,6 +348,41 @@ impl Scene {
         Ok(())
     }
 
+    /// Retain actual prepared physical outlines and original descriptor placements.
+    /// Every selected slot, including no-ink, is admitted before publication;
+    /// preparation rechecks the exact physical target DPI before atlas mutation.
+    pub fn draw_hinted_text(
+        &mut self,
+        draw: crate::text::hinted_replay::HintedReplayDraw,
+        context: TextPaintContext,
+    ) -> Result<(), Error> {
+        text::validate_context(context)?;
+        draw.validate(context)?;
+        if draw.range.is_empty() {
+            return Ok(());
+        }
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands
+            .push(Command::HintedText(Box::new((draw, context))));
+        self.tree_text = true;
+        Ok(())
+    }
+
+    /// Captured geometry replay descriptors in original painter order.
+    pub fn hinted_text_commands(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &crate::text::hinted_replay::HintedReplayDraw,
+            TextPaintContext,
+        ),
+    > {
+        self.commands.iter().filter_map(|command| match command {
+            Command::HintedText(record) => Some((&record.0, record.1)),
+            _ => None,
+        })
+    }
+
     /// Append a positioned text outline with its original per-axis raster scale,
     /// phase grid and coverage transfer. A missing brush is an unpainted path.
     pub fn draw_text_path(&mut self, paint: VectorGlyphPaint) -> Result<(), Error> {
@@ -351,7 +396,7 @@ impl Scene {
     pub(crate) fn has_text(&self) -> bool {
         self.commands
             .iter()
-            .any(|command| matches!(command, Command::Text(_)))
+            .any(|command| matches!(command, Command::Text(_) | Command::HintedText(_)))
     }
     /// Recorded text and its source context, in original scene order. CPU-only
     /// consumers can inspect/plan these records without any GPU dependency.
@@ -532,6 +577,10 @@ impl Scene {
         }
         materials.clear();
         let has_materials = commands.iter().any(|command| {
+            #[cfg(feature = "gpu")]
+            if matches!(command.as_ref(), Command::HintedGlyphPaint(_)) {
+                return true;
+            }
             matches!(
                 command.as_ref(),
                 Command::MaterialAnalytic(..)
@@ -566,13 +615,17 @@ impl Scene {
                 | Command::ImageFilteredImage(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
                 Command::Glyph(_)
+                | Command::HintedGlyphPaint(_)
                 | Command::ResolvedAxis(_)
                 | Command::ShaderEffect(_)
                 | Command::ManagedShaderEffect(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
                 Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
                 Command::CachedPicture(_) => return Err(Error::UnsupportedExecution),
-                Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
+                Command::Text(_)
+                | Command::HintedText(_)
+                | Command::Layer(_)
+                | Command::AxisClip(_) => {
                     return Err(Error::UnsupportedExecution);
                 }
                 Command::Path(draw)
@@ -608,6 +661,9 @@ impl Scene {
         let glyphs = Vec::new();
         #[cfg(feature = "gpu")]
         let mut glyphs = glyphs;
+        let hinted_paints = Vec::new();
+        #[cfg(feature = "gpu")]
+        let mut hinted_paints = hinted_paints;
         let mut draws = Vec::new();
         if self.inherited_clip.is_some() {
             draws.push(DrawRange::State(0));
@@ -646,6 +702,9 @@ impl Scene {
                 | Command::TextPath(_, paint, _) => {
                     materials.register(Some(&paint.brush), paint.semantic_opacity)?
                 }
+                #[cfg(feature = "gpu")]
+                Command::HintedGlyphPaint(record) => materials
+                    .register(record.paint.brush.as_deref(), record.paint.semantic_opacity)?,
                 Command::Stroke(draw) | Command::PlacedStroke(draw, _)
                     if draw.is_renderable()? =>
                 {
@@ -829,8 +888,58 @@ impl Scene {
                 #[cfg(feature = "gpu")]
                 Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
                 Command::CachedPicture(_) => return Err(Error::UnsupportedExecution),
-                Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
+                Command::Text(_)
+                | Command::HintedText(_)
+                | Command::Layer(_)
+                | Command::AxisClip(_) => {
                     return Err(Error::UnsupportedExecution);
+                }
+                #[cfg(feature = "gpu")]
+                Command::HintedGlyphPaint(record) => {
+                    if record.instances.is_empty() {
+                        continue;
+                    }
+                    let paint_index =
+                        u32::try_from(hinted_paints.len()).map_err(|_| Error::Capacity)?;
+                    if paint_index >= 1 << 24 {
+                        return Err(Error::Capacity);
+                    }
+                    let start = u32::try_from(glyphs.len()).map_err(|_| Error::Capacity)?;
+                    let count =
+                        u32::try_from(record.instances.len()).map_err(|_| Error::Capacity)?;
+                    let end = start.checked_add(count).ok_or(Error::Capacity)?;
+                    hinted_paints.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    glyphs
+                        .try_reserve(record.instances.len())
+                        .map_err(|_| Error::Capacity)?;
+                    let mut source_paint = record.paint.clone();
+                    source_paint.resolve_sampling(image_sampling);
+                    let binding = if let Some(texture) = &source_paint.texture {
+                        let key = texture.binding_key();
+                        let next = images.len();
+                        Some(*image_bindings.entry(key).or_insert_with(|| {
+                            images.push(ImageBinding {
+                                image: texture.image.clone(),
+                                key,
+                            });
+                            next
+                        }))
+                    } else {
+                        None
+                    };
+                    let mut paint = source_paint.record;
+                    paint.brush_index = brush_index as u32;
+                    hinted_paints.push(paint);
+                    for instance in &record.instances {
+                        let mut instance = *instance;
+                        instance.padding = f32::from_bits(paint_index);
+                        glyphs.push(instance);
+                    }
+                    draws.push(DrawRange::HintedText(
+                        start..end,
+                        paint.vertex_count(),
+                        binding,
+                    ));
                 }
                 #[cfg(feature = "gpu")]
                 Command::Glyph(instance) => {
@@ -891,6 +1000,7 @@ impl Scene {
             exact_loads,
             materials: materials.snapshot()?,
             glyphs,
+            hinted_paints,
             draws,
             states,
             image_mesh,
@@ -922,6 +1032,7 @@ pub struct CompiledScene {
     exact_loads: u32,
     materials: MaterialPage,
     pub(crate) glyphs: Vec<GlyphInstance>,
+    pub(crate) hinted_paints: Vec<crate::text::hinted_replay::GpuHintedGlyphPaint>,
     pub(crate) draws: Vec<DrawRange>,
     pub(crate) states: Vec<mask::CompiledDrawState>,
     pub(crate) image_mesh: Mesh,

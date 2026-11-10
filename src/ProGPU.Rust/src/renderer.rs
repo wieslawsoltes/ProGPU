@@ -24,6 +24,8 @@ pub use uniform_backdrop::{
 };
 mod axis_clip;
 pub use axis_clip::{AxisClipMetrics, AxisClipPass, AxisClipReplayMetrics, PreparedAxisClip};
+mod visual;
+pub use visual::{PreparedVisual, VisualMetrics, VisualRenderOptions};
 mod cached_picture;
 mod capture;
 pub use cached_picture::{CachedPictureMetrics, CachedPictureRaster};
@@ -286,6 +288,7 @@ pub struct Renderer {
     managed_shader_engine: Option<crate::shader_effect::ManagedShaderEngine>,
     owned_shaders: owned_shader::OwnedShaderState,
     cached_pictures: cached_picture::CachedPictureState,
+    visuals: visual::VisualState,
     owned_shader_completed: std::sync::atomic::AtomicU64,
     masks: Option<mask::MaskState>,
     materialized_masks: Option<materialized_mask::MaterialMaskState>,
@@ -429,6 +432,7 @@ impl Renderer {
             managed_shader_engine: None,
             owned_shaders: Default::default(),
             cached_pictures: Default::default(),
+            visuals: Default::default(),
             owned_shader_completed: Default::default(),
             masks: None,
             materialized_masks: None,
@@ -1162,6 +1166,28 @@ impl Renderer {
                         .draw(&mut pass, *index, masked)?;
                     continue;
                 }
+                if let DrawRange::HintedText(range, vertex_count, binding) = draw {
+                    let state = self.text.as_ref().ok_or(Error::ResourceDomain)?;
+                    let text = scene.text.as_ref().ok_or(Error::ResourceDomain)?;
+                    let texture = binding
+                        .map(|index| {
+                            scene
+                                .images
+                                .as_ref()
+                                .and_then(|images| images.bindings.get(index))
+                                .ok_or(Error::ResourceDomain)
+                        })
+                        .transpose()?;
+                    state.hinted.as_ref().ok_or(Error::ResourceDomain)?.draw(
+                        &mut pass,
+                        text,
+                        range.clone(),
+                        *vertex_count,
+                        masked,
+                        texture,
+                    )?;
+                    continue;
+                }
                 let masked_pipeline = if masked.is_some() {
                     let index = match draw {
                         DrawRange::Vector(_) => 0,
@@ -1181,6 +1207,7 @@ impl Renderer {
                 };
                 match draw {
                     DrawRange::State(_)
+                    | DrawRange::HintedText(..)
                     | DrawRange::ImageEffect(_)
                     | DrawRange::ShaderEffect(_)
                     | DrawRange::ManagedShaderEffect(_)

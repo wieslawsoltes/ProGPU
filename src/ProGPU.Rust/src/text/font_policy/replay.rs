@@ -146,6 +146,9 @@ impl FontReplayGeometry {
             placements,
         })
     }
+    pub(crate) fn generation_identity(&self) -> usize {
+        Arc::as_ptr(&self.generation) as usize
+    }
     /// Exact selected capture/geometry owner; paired replay retains only the
     /// original Unhinted owner here, not its separate monochrome witness.
     pub fn source_geometry(&self) -> &Arc<NativeFontOutlineGeometry> {

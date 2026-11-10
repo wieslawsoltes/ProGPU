@@ -4,6 +4,7 @@ use crate::Error;
 use std::collections::{HashMap, HashSet};
 mod cache;
 mod font;
+mod hinted;
 mod packing;
 use cache::{Cache, CachedGlyph, Key};
 use packing::{Region, Shelf};
@@ -115,8 +116,8 @@ impl GlyphAtlasResidency {
 /// consumers must rebuild their UVs when it changes. A residency set protects
 /// actual cached entries from current-frame LRU reuse, independently of growth.
 ///
-/// SVG geometry, final color-layer drawing and native captured hinted-source
-/// ownership remain separate integration work. No CPU coverage, surrogate
+/// SVG geometry and final color-layer drawing remain separate integration work.
+/// Captured physical outlines retain their exact raster generation through keys. No CPU coverage, surrogate
 /// shaping or source raster-policy inference is introduced by bitmap decoding.
 pub struct GlyphAtlas {
     owner: Arc<()>,
@@ -125,6 +126,7 @@ pub struct GlyphAtlas {
     coverage: GlyphCoverageTexture,
     color: GlyphColorTexture,
     cache: Cache,
+    hinted_slots: HashMap<Key, GlyphGpuSlot>,
     shelves: Vec<Shelf>,
     next_shelf_y: u32,
     color_shelves: Vec<Shelf>,
@@ -171,6 +173,7 @@ impl GlyphAtlas {
             coverage,
             color,
             cache: Cache::default(),
+            hinted_slots: HashMap::new(),
             shelves: Vec::new(),
             next_shelf_y: 2,
             color_shelves: Vec::new(),
@@ -258,7 +261,9 @@ impl GlyphAtlas {
     pub async fn begin_batch(&mut self) -> Result<(), Error> {
         let depth = self.batch_depth.checked_add(1).ok_or(Error::Capacity)?;
         if self.batch_depth == 0 {
-            self.rasterizer.trim_outline_cache().await?;
+            if self.rasterizer.trim_outline_cache().await? {
+                self.hinted_slots.clear();
+            }
             self.frame = self.frame.wrapping_add(1);
             self.new_glyphs = 0;
             self.usages.clear();
@@ -455,6 +460,7 @@ impl GlyphAtlas {
         }
         self.pending.clear();
         self.pending_bytes = 0;
+        self.hinted_slots.clear();
         self.rasterizer.invalidate_font_slots();
     }
     async fn stage(&mut self, request: GlyphRasterRequest) -> Result<bool, Error> {

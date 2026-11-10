@@ -298,6 +298,7 @@ impl Renderer {
                 let source = match &component.mask {
                     crate::mask::Mask::Coverage(c) => ImageSource::Pixels(c.image.clone()),
                     crate::mask::Mask::Texture(c) => c.source.clone(),
+                    crate::mask::Mask::RenderedTexture(c) => c.texture.source.clone(),
                     _ => continue,
                 };
                 if source
@@ -322,6 +323,31 @@ impl Renderer {
         frame: RenderFrame,
         prepared: &mut PreparedScene,
     ) -> Result<(), Error> {
+        for state in &compiled.states {
+            for component in state.components.iter() {
+                let root = RenderFrame {
+                    origin: [0; 2],
+                    frame: frame.root,
+                    ..frame
+                };
+                let projection = root
+                    .uniforms(self.device.limits().max_texture_dimension_2d)?
+                    .projection;
+                match &component.mask {
+                    crate::mask::Mask::RenderedTexture(mask) => mask.validate_target(
+                        [frame.root.width, frame.root.height],
+                        frame.dpi_scale,
+                        projection,
+                    )?,
+                    crate::mask::Mask::FrameAnalytic(mask) => mask.validate_target(
+                        [frame.root.width, frame.root.height],
+                        frame.dpi_scale,
+                        projection,
+                    )?,
+                    _ => {}
+                }
+            }
+        }
         self.trim_mask_cache();
         if compiled.states.len() == 1 && compiled.states[0].clip.is_none() {
             return Ok(());
@@ -344,6 +370,7 @@ impl Renderer {
                     | DrawRange::ImageColor(..)
                     | DrawRange::ColorFilteredImage(_)
                     | DrawRange::ImageFilteredImage(_)
+                    | DrawRange::HintedText(..)
             ) {
                 continue;
             }

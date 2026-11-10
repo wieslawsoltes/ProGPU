@@ -71,9 +71,10 @@ implementation was ported. Prior DESIGN.md architecture references still apply.
 | `eng/progpu-verify-freetype.py` | `532107a16f0642760e05bc069bec9c2c0c128bcfd09c99af27f032c2b79d48f6` |
 
 Remaining: actual safe FreeType backend/binding, prepared dependency verifier
-integration, independent original producer/pixel evidence, paired unfitted scan replay and
-retained shaped-source geometry/paragraph/
-renderer/provider/package application integration. No default backend, source
+integration, independent original producer/pixel evidence and retained shaped-source
+geometry/paragraph/provider/package application integration. Paired unfitted replay
+and captured font-placement rendering are now connected; see
+`native-font-policy-port.md` and `native-hinted-replay-port.md`. No default backend, source
 raster-mode equivalence or browser hinted producer is claimed. Native raw long
 values remain i64 until original narrowing. Point/key Vec copies are fallible;
 Arc allocation follows the existing crate contract. Request axes are copied per

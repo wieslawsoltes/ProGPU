@@ -39,6 +39,22 @@ pub const TEXT: &str = concat!(
     "\n",
     shader!("Text")
 );
+/// Original direct per-occurrence physical glyph material and image paint.
+pub const HINTED_GLYPH_PAINT: &str = concat!(
+    shader!("RegisteredMaterialCommon"),
+    "\n",
+    shader!("TextGlyphGeometryCommon"),
+    "\n",
+    shader!("TextMaskCommon"),
+    "\n",
+    shader!("TextGlyphCoverageCommon"),
+    "\n",
+    shader!("TextureImageSamplingCommon"),
+    "\n",
+    shader!("GlyphCoverageTransfer"),
+    "\n",
+    shader!("HintedGlyphPaint")
+);
 /// Image rendering and reconstruction.
 pub const TEXTURE: &str = concat!(
     shader!("SampledMaskCommon"),

@@ -88,6 +88,25 @@ fn raster_padding(v: f32) -> f32 {
     if v.is_finite() && v > 0.0 { v } else { 0.0 }
 }
 impl ManagedCaptureFrame {
+    /// Original ordinary visual effect capture with independently resolved X/Y padding.
+    pub fn resolved(bounds: [f32; 4], padding: [f32; 2], dpi: f32) -> Result<Self, Error> {
+        if bounds.iter().chain(&padding).any(|v| !v.is_finite())
+            || bounds[2] <= 0.0
+            || bounds[3] <= 0.0
+        {
+            return Err(Error::InvalidInput);
+        }
+        Self::padded(
+            [
+                bounds[0] - padding[0],
+                bounds[1] - padding[1],
+                bounds[2] + padding[0] * 2.0,
+                bounds[3] + padding[1] * 2.0,
+            ],
+            dpi,
+        )
+    }
+
     fn padded(bounds: [f32; 4], dpi: f32) -> Result<Self, Error> {
         if bounds.iter().any(|v| !v.is_finite()) || !dpi.is_finite() || dpi <= 0.0 {
             return Err(Error::InvalidInput);

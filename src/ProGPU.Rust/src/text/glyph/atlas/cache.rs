@@ -3,21 +3,26 @@ use super::*;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug)]
-pub(super) struct Key {
-    // The owner also prevents allocator-address reuse while a residency key lives.
-    pub font: ManagedFont,
-    pub glyph: u16,
-    pub size: u32,
-    pub phase: u8,
+pub(super) enum Key {
+    Font {
+        font: ManagedFont,
+        glyph: u16,
+        size: u32,
+        phase: u8,
+    },
+    // Exact raster generation survives selected-view and provider retirement.
+    Hinted {
+        geometry: Arc<crate::text::font_policy::FontReplayGeometry>,
+        outline: u32,
+    },
 }
 impl Key {
     pub fn new(font: &ManagedFont, glyph: u16, size: f32, phase: u8) -> Self {
-        Self {
+        Self::Font {
             font: font.clone(),
             glyph,
             phase,
             // Original Single.Equals/HashCode equate signed zeros and all NaNs.
-            // This affects identity only, never the original raster arithmetic.
             size: if size == 0.0 {
                 0
             } else if size.is_nan() {
@@ -27,22 +32,68 @@ impl Key {
             },
         }
     }
+    pub fn hinted(
+        geometry: &Arc<crate::text::font_policy::FontReplayGeometry>,
+        outline: u32,
+    ) -> Self {
+        Self::Hinted {
+            geometry: geometry.clone(),
+            outline,
+        }
+    }
 }
 impl PartialEq for Key {
     fn eq(&self, other: &Self) -> bool {
-        self.font.same_instance(&other.font)
-            && self.glyph == other.glyph
-            && self.size == other.size
-            && self.phase == other.phase
+        match (self, other) {
+            (
+                Self::Font {
+                    font: a,
+                    glyph: ag,
+                    size: az,
+                    phase: ap,
+                },
+                Self::Font {
+                    font: b,
+                    glyph: bg,
+                    size: bz,
+                    phase: bp,
+                },
+            ) => a.same_instance(b) && ag == bg && az == bz && ap == bp,
+            (
+                Self::Hinted {
+                    geometry: a,
+                    outline: ai,
+                },
+                Self::Hinted {
+                    geometry: b,
+                    outline: bi,
+                },
+            ) => ai == bi && a.same_generation(b),
+            _ => false,
+        }
     }
 }
 impl Eq for Key {}
 impl Hash for Key {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.font.instance_identity().hash(state);
-        self.glyph.hash(state);
-        self.size.hash(state);
-        self.phase.hash(state);
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::Font {
+                font,
+                glyph,
+                size,
+                phase,
+            } => {
+                font.instance_identity().hash(state);
+                glyph.hash(state);
+                size.hash(state);
+                phase.hash(state);
+            }
+            Self::Hinted { geometry, outline } => {
+                geometry.generation_identity().hash(state);
+                outline.hash(state);
+            }
+        }
     }
 }
 pub(super) struct CachedGlyph {

@@ -119,6 +119,77 @@ impl From<CoverageMask> for TextureMask {
     }
 }
 
+/// A completed opacity-mask texture in its actual root physical frame. The
+/// constructor is private to the renderer; ordinary sampled textures cannot
+/// assert this proof or be retargeted through source placement.
+#[cfg(feature = "gpu")]
+#[derive(Clone, Debug)]
+pub struct RenderedTextureMask {
+    pub(crate) texture: TextureMask,
+    pub(crate) size: [u32; 2],
+    pub(crate) dpi: f32,
+    pub(crate) projection: [f32; 16],
+    pub(crate) replaces_chain: bool,
+}
+#[cfg(feature = "gpu")]
+impl RenderedTextureMask {
+    pub(crate) fn uniforms(&self, origin: [u32; 2]) -> MaskUniforms {
+        MaskUniforms {
+            coordinate0: [-(origin[0] as f32), -(origin[1] as f32), 0.0, 0.0],
+            coordinate1: [
+                1.0 / self.size[0] as f32,
+                1.0 / self.size[1] as f32,
+                0.0,
+                0.0,
+            ],
+            options: [1.0, 1.0, 0.0, 2.0],
+            ..Zeroable::zeroed()
+        }
+    }
+    pub(crate) fn validate_target(
+        &self,
+        size: [u32; 2],
+        dpi: f32,
+        projection: [f32; 16],
+    ) -> Result<(), Error> {
+        if size != self.size
+            || dpi.to_bits() != self.dpi.to_bits()
+            || projection.map(f32::to_bits) != self.projection.map(f32::to_bits)
+        {
+            return Err(Error::ResourceDomain);
+        }
+        Ok(())
+    }
+}
+
+/// Original source analytic mask rows computed in the actual physical target.
+#[cfg(feature = "gpu")]
+#[derive(Clone, Debug)]
+pub struct FrameAnalyticMask {
+    pub(crate) uniforms: MaskUniforms,
+    pub(crate) size: [u32; 2],
+    pub(crate) dpi: f32,
+    pub(crate) projection: [f32; 16],
+    pub(crate) replaces_chain: bool,
+}
+#[cfg(feature = "gpu")]
+impl FrameAnalyticMask {
+    pub(crate) fn validate_target(
+        &self,
+        size: [u32; 2],
+        dpi: f32,
+        projection: [f32; 16],
+    ) -> Result<(), Error> {
+        if size != self.size
+            || dpi.to_bits() != self.dpi.to_bits()
+            || projection.map(f32::to_bits) != self.projection.map(f32::to_bits)
+        {
+            return Err(Error::ResourceDomain);
+        }
+        Ok(())
+    }
+}
+
 /// Immutable-at-recording mask and its original ordered operation.
 #[derive(Clone, Debug)]
 pub struct MaskComponent {
@@ -229,6 +300,12 @@ pub enum Mask {
     Coverage(CoverageMask),
     /// Original red/alpha sampled source, including an owned GPU generation.
     Texture(TextureMask),
+    /// Completed actual-target visual opacity mask with immutable frame ownership.
+    #[cfg(feature = "gpu")]
+    RenderedTexture(RenderedTextureMask),
+    /// Original analytic source coverage resolved in one immutable physical frame.
+    #[cfg(feature = "gpu")]
+    FrameAnalytic(FrameAnalyticMask),
 }
 impl From<AnalyticMask> for Mask {
     fn from(value: AnalyticMask) -> Self {
@@ -309,6 +386,32 @@ impl Mask {
     /// Whole-descriptor native admission, independent of a future target DPI.
     pub fn validate(&self) -> Result<(), Error> {
         let (bounds, transform, opacity) = match self {
+            #[cfg(feature = "gpu")]
+            Self::FrameAnalytic(mask) => {
+                if mask.size.contains(&0)
+                    || !mask.dpi.is_finite()
+                    || mask.dpi <= 0.0
+                    || bytemuck::cast_slice::<_, f32>(std::slice::from_ref(&mask.uniforms))
+                        .iter()
+                        .chain(&mask.projection)
+                        .any(|v| !v.is_finite())
+                {
+                    return Err(Error::InvalidInput);
+                }
+                return Ok(());
+            }
+            #[cfg(feature = "gpu")]
+            Self::RenderedTexture(mask) => {
+                if mask.size.contains(&0)
+                    || mask.texture.source.size() != mask.size
+                    || !mask.dpi.is_finite()
+                    || mask.dpi <= 0.0
+                    || mask.projection.iter().any(|v| !v.is_finite())
+                {
+                    return Err(Error::InvalidInput);
+                }
+                return Self::Texture(mask.texture.clone()).validate();
+            }
             Self::Path(path) => {
                 if !matches!(path.sample_grid, 1 | 4 | 8)
                     || path.operation != MaskOperation::Intersect
@@ -371,6 +474,20 @@ impl Mask {
         }
         let mut out = MaskUniforms::zeroed();
         match self {
+            #[cfg(feature = "gpu")]
+            Self::FrameAnalytic(mask) => {
+                if dpi.to_bits() != mask.dpi.to_bits() {
+                    return Err(Error::ResourceDomain);
+                }
+                return Ok(mask.uniforms);
+            }
+            #[cfg(feature = "gpu")]
+            Self::RenderedTexture(mask) => {
+                if dpi.to_bits() != mask.dpi.to_bits() {
+                    return Err(Error::ResourceDomain);
+                }
+                return Ok(mask.uniforms([0; 2]));
+            }
             Self::Path(_) => return Err(Error::UnsupportedExecution),
             Self::AxisClipEdges(mask) => {
                 out.bounds = (f32x4::from(mask.edges) * f32x4::splat(dpi) + f32x4::ZERO).to_array();

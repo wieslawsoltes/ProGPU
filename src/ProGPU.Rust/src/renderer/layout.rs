@@ -54,6 +54,31 @@ pub(super) fn mask(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         entries: &[sampler(), texture(1), primary, chain],
     })
 }
+pub(super) fn hinted_text(device: &wgpu::Device) -> wgpu::PipelineLayout {
+    let frame = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ProGPU original hinted paint frame"),
+        entries: &[
+            buffer(0, false, size_of::<Uniforms>() as u64),
+            buffer(1, true, 256),
+            buffer(2, true, 32),
+            buffer(3, true, 96),
+        ],
+    });
+    let atlas = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ProGPU original hinted glyph atlas"),
+        entries: &[sampler(), texture(1), texture(2)],
+    });
+    let mask = mask(device);
+    let paint = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ProGPU original hinted image paint"),
+        entries: &[sampler(), texture(1)],
+    });
+    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("ProGPU original direct hinted paint pipeline layout"),
+        bind_group_layouts: &[Some(&frame), Some(&atlas), Some(&mask), Some(&paint)],
+        immediate_size: 0,
+    })
+}
 pub(super) fn pipeline(
     device: &wgpu::Device,
     family: Family,

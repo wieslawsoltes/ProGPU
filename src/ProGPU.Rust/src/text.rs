@@ -5,6 +5,7 @@
 mod font_face;
 pub mod font_policy;
 pub mod glyph;
+pub mod hinted_replay;
 pub mod hinting;
 pub mod layout;
 pub mod managed_pipeline;
