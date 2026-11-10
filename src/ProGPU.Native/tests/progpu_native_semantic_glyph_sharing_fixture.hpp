@@ -47,6 +47,13 @@ inline bool build_semantic_glyph_sharing_fixture(bool reference,
     if (reference) {
         for (std::uint32_t index = 0U; index < 3U; ++index)
             segments[index * 4U].p2.x = static_cast<float>(index + (variant == 9U ? 4U : 1U));
+    } else if (variant == 9U) {
+        // The atlas of the subject engine still holds the coverage of the
+        // separate resources. One value in the same unused control point, equal
+        // in the three outlines, makes the packed resource new to that atlas
+        // while its outlines stay identical to each other.
+        for (std::uint32_t index = 0U; index < 3U; ++index)
+            segments[index * 4U].p2.x = 7.0F;
     }
     const bool packed = reference || variant == 9U;
     if (packed) {
