@@ -1,6 +1,7 @@
 //! Original stroke payload layout; renderer widening admission stays independent.
-use super::*;
-pub(super) fn layout(strokes: &[wire::Stroke], auxiliary_size: usize) -> Option<(usize, usize)> {
+use super::wire;
+use wire::{WireRecord, constants::*};
+pub(crate) fn layout(strokes: &[wire::Stroke], auxiliary_size: usize) -> Option<(usize, usize)> {
     if strokes.is_empty() {
         return None;
     }
@@ -68,4 +69,13 @@ pub(super) fn layout(strokes: &[wire::Stroke], auxiliary_size: usize) -> Option<
         return None;
     }
     Some((points as usize, doubles as usize))
+}
+
+fn finite_color(c: wire::Color) -> bool {
+    [c.r, c.g, c.b, c.a].into_iter().all(f32::is_finite)
+}
+fn finite_transform(t: wire::Affine2d) -> bool {
+    [t.m11, t.m12, t.m21, t.m22, t.m31, t.m32]
+        .into_iter()
+        .all(f32::is_finite)
 }

@@ -15,7 +15,10 @@ pub use builder::{
 pub mod identity;
 pub use identity::NativeSceneContentHashes;
 pub mod draw;
+#[cfg(feature = "gpu")]
+pub mod engine_gpu;
 pub mod engine_materials;
+pub mod engine_resources;
 mod envelope;
 pub mod execution;
 mod hit;

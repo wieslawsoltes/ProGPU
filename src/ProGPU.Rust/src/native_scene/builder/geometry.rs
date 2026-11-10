@@ -1,8 +1,7 @@
 //! Native batched geometry, mesh/source coverage and raw stroke producers.
 use super::*;
-use crate::native_scene::semantic::{source_draw, values};
-mod mesh;
-mod stroke;
+use crate::native_scene::semantic::stroke;
+use crate::native_scene::semantic::{source_draw, values, vertex_mesh as mesh};
 impl NativeSceneBuilder {
     pub fn draw_geometry(
         &mut self,

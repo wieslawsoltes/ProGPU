@@ -1,6 +1,7 @@
 //! Exact original mesh packing and transformed-vertex admission.
-use super::*;
-pub(super) fn layout(meshes: &[wire::VertexMesh], auxiliary_size: usize) -> Option<(usize, usize)> {
+use super::wire;
+use wire::constants::*;
+pub(crate) fn layout(meshes: &[wire::VertexMesh], auxiliary_size: usize) -> Option<(usize, usize)> {
     if meshes.is_empty() {
         return None;
     }
@@ -33,7 +34,7 @@ fn header(mesh: &wire::VertexMesh) -> bool {
         && finite_transform(mesh.transform)
         && mesh.reserved == [0; 2]
 }
-pub(super) fn valid(
+pub(crate) fn valid(
     mesh: &wire::VertexMesh,
     vertices: &[wire::MeshVertex],
     index_count: usize,
@@ -79,4 +80,12 @@ pub(super) fn valid(
         }
     }
     true
+}
+fn finite_transform(t: wire::Affine2d) -> bool {
+    [t.m11, t.m12, t.m21, t.m22, t.m31, t.m32]
+        .into_iter()
+        .all(f32::is_finite)
+}
+fn finite_color(c: wire::Color) -> bool {
+    [c.r, c.g, c.b, c.a].into_iter().all(f32::is_finite)
 }

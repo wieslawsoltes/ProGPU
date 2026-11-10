@@ -154,10 +154,13 @@ pub const BACKDROP_MATERIAL: &str =
 pub const HATCH: &str = include_str!("../../ProGPU.Scene/Shaders/Hatch.wgsl");
 /// Original dedicated source line and ACIS shader modules.
 pub const LINE_3D: &str = include_str!("../../ProGPU.Scene/Shaders/Line3D.wgsl");
+/// Original native scene 3D storage, camera, material and light execution.
+pub const NATIVE_3D: &str = include_str!("../../ProGPU.Scene/Shaders/Native3D.wgsl");
 pub const ACIS_SOLID: &str = include_str!("../../ProGPU.Scene/Shaders/AcisSolid.wgsl");
 
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
+    ("native_3d", NATIVE_3D),
     ("mesh3d_solid", MESH_3D_SOLID),
     ("mesh3d_wireframe", MESH_3D_WIREFRAME),
     ("mesh3d_edges", MESH_3D_EDGES),

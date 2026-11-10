@@ -26,6 +26,7 @@ pub struct NativeCommandFrame {
     pub(crate) scene: Arc<NativeScene>,
     pub(crate) command_index: u32,
     pub(crate) source_state: wire::State,
+    pub(crate) source_state_dpi: [f32; 2],
     pub(crate) state: wire::State,
     pub(crate) target: NativeScissor,
     pub(crate) presentation: wire::Presentation,
@@ -41,6 +42,10 @@ impl NativeCommandFrame {
     }
     pub fn source_state(&self) -> wire::State {
         self.source_state
+    }
+    /// Initial source cursor DPI, independent of nested target presentations.
+    pub fn source_state_dpi(&self) -> [f32; 2] {
+        self.source_state_dpi
     }
     pub fn state(&self) -> wire::State {
         self.state
@@ -70,6 +75,7 @@ pub struct NativeExecutionCursor {
     scene: Arc<NativeScene>,
     frame: NativeSceneFrame,
     index: u32,
+    source_state_dpi: [f32; 2],
     state: NativeStateCursor,
     target: NativeLayerTargetCursor,
 }
@@ -86,6 +92,7 @@ impl NativeExecutionCursor {
                 [frame.width, frame.height],
                 presentation,
             ),
+            source_state_dpi: [presentation.dpi_scale_x, presentation.dpi_scale_y],
             scene,
             frame,
             index: 0,
@@ -111,6 +118,7 @@ impl NativeExecutionCursor {
             scene: self.scene.clone(),
             command_index: index,
             source_state,
+            source_state_dpi: self.source_state_dpi,
             state,
             target,
             presentation,

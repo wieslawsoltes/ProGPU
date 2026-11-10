@@ -14,8 +14,10 @@ mod resources;
 pub(crate) mod rgb_glyph;
 pub(crate) mod shader_effect;
 pub(crate) mod source_draw;
+pub(crate) mod stroke;
 pub(crate) mod text;
 pub(crate) mod values;
+pub(crate) mod vertex_mesh;
 pub(crate) use brush::{stored_stop_count, valid_brush_records};
 pub use inventory::{
     NativeSceneMask, NativeScenePayload, NativeSceneResource, NativeSceneShader, NativeWireRecords,
