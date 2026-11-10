@@ -79,10 +79,13 @@ fn policy(
 /// One combined retained raster generation. Imports own complete source records
 /// and have no paragraph/provider identity. Producer resources retain the actual
 /// full paragraph, run batches, source fonts and immutable copied wire records.
+/// Source-double generations additionally retain their original v2 witnesses.
 #[derive(Debug)]
 pub struct NativeParagraphGeometry {
     paragraph: Option<Arc<NativeHintedParagraph>>,
     records: NativeParagraphResource,
+    source_paragraph: Option<Arc<NativeSourceParagraph>>,
+    source_records: Option<NativeSourceResource>,
     occurrences: Vec<NativeParagraphOccurrence>,
 }
 impl NativeParagraphGeometry {
@@ -94,7 +97,45 @@ impl NativeParagraphGeometry {
         projection: NativeHintedProjection,
         coverage: NativeHintedCoverage,
     ) -> Result<Self, NativeParagraphGeometryError> {
+        checked(paragraph.source.source_policies.is_none())?;
+        Self::new_inner(paragraph, None, dpi, projection, coverage)
+    }
+    /// Retain the actual source-double generation and its full version-two
+    /// witnesses alongside the common captured outline/descriptor geometry.
+    pub fn new_source(
+        paragraph: Arc<NativeSourceParagraph>,
+        dpi: f32,
+        projection: NativeHintedProjection,
+        coverage: NativeHintedCoverage,
+    ) -> Result<Self, NativeSourceError> {
+        if paragraph.options().pixels_per_dip as f32 != dpi {
+            return Err(NativeSourceError::InvalidArgument);
+        }
+        Self::new_inner(
+            paragraph.raster().clone(),
+            Some(paragraph),
+            dpi,
+            projection,
+            coverage,
+        )
+        .map_err(NativeSourceError::from)
+    }
+    fn new_inner(
+        paragraph: Arc<NativeHintedParagraph>,
+        source_paragraph: Option<Arc<NativeSourceParagraph>>,
+        dpi: f32,
+        projection: NativeHintedProjection,
+        coverage: NativeHintedCoverage,
+    ) -> Result<Self, NativeParagraphGeometryError> {
         use NativeParagraphGeometryError as E;
+        let source_records = source_paragraph
+            .as_deref()
+            .map(NativeSourceResource::from_paragraph)
+            .transpose()
+            .map_err(|e| match e {
+                NativeSourceError::Font(FontError::Capacity) => E::ResourceExhausted,
+                _ => E::InvalidLayout,
+            })?;
         let units = policy(dpi, projection, coverage)?;
         let p = &paragraph;
         let s = &p.source;
@@ -270,14 +311,16 @@ impl NativeParagraphGeometry {
         for &l in &p.lines {
             v.lines.push(NativeParagraphLineRecord::from_positioned(l));
         }
-        let interaction =
-            NativeParagraphInteraction::new(paragraph.clone()).map_err(|_| E::InvalidLayout)?;
-        v.boxes = reserve(interaction.boxes().len())?;
-        v.carets = reserve(interaction.carets().len())?;
-        v.boxes
-            .extend(interaction.boxes().iter().copied().map(Into::into));
-        v.carets
-            .extend(interaction.carets().iter().copied().map(Into::into));
+        if source_paragraph.is_none() {
+            let interaction =
+                NativeParagraphInteraction::new(paragraph.clone()).map_err(|_| E::InvalidLayout)?;
+            v.boxes = reserve(interaction.boxes().len())?;
+            v.carets = reserve(interaction.carets().len())?;
+            v.boxes
+                .extend(interaction.boxes().iter().copied().map(Into::into));
+            v.carets
+                .extend(interaction.carets().iter().copied().map(Into::into));
+        }
         v.outlines = alloc(totals[2], NativeHintedOutline::default())?;
         v.segments = alloc(totals[3], Segment::line([0.0; 2], [0.0; 2]))?;
         v.source_outline_indices = alloc(totals[0], 0)?;
@@ -363,20 +406,77 @@ impl NativeParagraphGeometry {
         Ok(Self {
             paragraph: Some(paragraph),
             records: v,
+            source_paragraph,
+            source_records,
             occurrences,
         })
     }
     /// Validate complete original flat metadata and copy every record before
     /// publication. This never creates a paragraph, shaped run or hinted batch.
     pub fn import(records: &NativeParagraphResource) -> Result<Self, NativeParagraphGeometryError> {
-        import::validate(records)?;
+        import::validate(records, false)?;
         let owned = records.try_copy()?;
         let occurrences = occurrences(&owned)?;
         Ok(Self {
             paragraph: None,
             records: owned,
+            source_paragraph: None,
+            source_records: None,
             occurrences,
         })
+    }
+    /// Complete paired v2 import: admit all base records, then original source
+    /// policies, placement witnesses, double writer output and interaction bits.
+    pub fn import_source(
+        records: &NativeParagraphResource,
+        source: &NativeSourceResource,
+    ) -> Result<Self, NativeSourceError> {
+        import::validate(records, true)?;
+        source.admit(records)?;
+        let owned = records.try_copy()?;
+        let source = source.try_copy()?;
+        let occurrences = occurrences(&owned)?;
+        Ok(Self {
+            paragraph: None,
+            records: owned,
+            source_paragraph: None,
+            source_records: Some(source),
+            occurrences,
+        })
+    }
+    /// Copy the complete paired resource only after both full capacities pass.
+    /// No font/provider work or placement reconstruction occurs during copies.
+    pub fn copy_source_into(
+        &self,
+        base: NativeParagraphResourceBuffers<'_>,
+        source: NativeSourceResourceBuffers<'_>,
+    ) -> Result<
+        (
+            NativeParagraphResourceMetadata,
+            NativeSourceResourceMetadata,
+        ),
+        NativeSourceError,
+    > {
+        let records = self
+            .source_records
+            .as_ref()
+            .ok_or(NativeSourceError::Unsupported)?;
+        self.records.preflight_copy(&base)?;
+        records.preflight_copy(&source)?;
+        let base = self.records.copy_into(base)?;
+        let source = records.copy_into(source)?;
+        Ok((base, source))
+    }
+    pub fn source_paragraph(&self) -> Option<&Arc<NativeSourceParagraph>> {
+        self.source_paragraph.as_ref()
+    }
+    pub fn source_interaction(&self) -> Option<NativeSourceInteraction<'_>> {
+        self.source_records
+            .as_ref()
+            .map(NativeSourceResource::interaction)
+    }
+    pub fn source_records(&self) -> Option<&NativeSourceResource> {
+        self.source_records.as_ref()
     }
     pub fn paragraph(&self) -> Option<&Arc<NativeHintedParagraph>> {
         self.paragraph.as_ref()

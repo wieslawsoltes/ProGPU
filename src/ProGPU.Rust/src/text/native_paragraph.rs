@@ -18,6 +18,8 @@ use crate::font::{FontError, SfntFace, Tag, layout::GposDirection};
 use std::{ops::Range, sync::Arc};
 mod fallback;
 mod geometry;
+mod source;
+pub use source::*;
 mod interaction;
 pub use geometry::*;
 mod prepare;
@@ -186,6 +188,7 @@ impl NativeParagraphShaping {
 /// and immutable after successful publication; accessors borrow exact records.
 #[derive(Debug)]
 pub struct NativeParagraphSource {
+    source_policies: Option<Vec<NativeSourcePolicy>>,
     source: Vec<UnicodeScalar>,
     input: Vec<UnicodeScalar>,
     fonts: Vec<SfntFace>,
@@ -212,6 +215,9 @@ pub struct NativeParagraphSource {
     justification: Vec<NativeTextJustification>,
 }
 impl NativeParagraphSource {
+    pub fn source_policies(&self) -> Option<&[NativeSourcePolicy]> {
+        self.source_policies.as_deref()
+    }
     pub fn source(&self) -> &[UnicodeScalar] {
         &self.source
     }
@@ -426,7 +432,8 @@ impl NativeHintedParagraph {
         maximum_width: f32,
     ) -> Result<Arc<Self>, NativeParagraphError> {
         let stage = NativeParagraphStage::Layout;
-        if !maximum_width.is_finite()
+        if self.source.source_policies.is_some()
+            || !maximum_width.is_finite()
             || maximum_width < 0.0
             || input_start < 0
             || self

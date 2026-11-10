@@ -74,7 +74,8 @@ impl NativeParagraphInteraction {
         let stage = NativeParagraphStage::Interaction;
         let p = &paragraph;
         let source = &p.source;
-        if p.glyphs.len() > u32::MAX as usize / 2
+        if source.source_policies.is_some()
+            || p.glyphs.len() > u32::MAX as usize / 2
             || p.lines.len() > u32::MAX as usize
             || p.owners.len() != p.glyphs.len()
             || p.levels.len() != p.glyphs.len()

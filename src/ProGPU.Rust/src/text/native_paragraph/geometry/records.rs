@@ -355,43 +355,7 @@ impl NativeParagraphResource {
         &self,
         out: NativeParagraphResourceBuffers<'_>,
     ) -> Result<NativeParagraphResourceMetadata, NativeParagraphGeometryError> {
-        if out.font_sources.len() < self.font_sources.len()
-            || out.font_bytes.len() < self.font_bytes.len()
-            || out.device_styles.len() < self.device_styles.len()
-            || out.variation_coordinates_16_16.len() < self.variation_coordinates_16_16.len()
-            || out.normalized_coordinates.len() < self.normalized_coordinates.len()
-            || out.source_scalars.len() < self.source_scalars.len()
-            || out.admitted_scalars.len() < self.admitted_scalars.len()
-            || out.pre_context.len() < self.pre_context.len()
-            || out.post_context.len() < self.post_context.len()
-            || out.scalar_levels.len() < self.scalar_levels.len()
-            || out.styles.len() < self.styles.len()
-            || out.source_metrics.len() < self.source_metrics.len()
-            || out.runs.len() < self.runs.len()
-            || out.logical_glyphs.len() < self.logical_glyphs.len()
-            || out.logical_owners.len() < self.logical_owners.len()
-            || out.logical_cluster_ends.len() < self.logical_cluster_ends.len()
-            || out.logical_bidi_levels.len() < self.logical_bidi_levels.len()
-            || out.glyph_scales.len() < self.glyph_scales.len()
-            || out.positioned_glyphs.len() < self.positioned_glyphs.len()
-            || out.positioned_owners.len() < self.positioned_owners.len()
-            || out.positioned_cluster_ends.len() < self.positioned_cluster_ends.len()
-            || out.positioned_bidi_levels.len() < self.positioned_bidi_levels.len()
-            || out.lines.len() < self.lines.len()
-            || out.line_origins.len() < self.line_origins.len()
-            || out.boxes.len() < self.boxes.len()
-            || out.carets.len() < self.carets.len()
-            || out.features.len() < self.features.len()
-            || out.outlines.len() < self.outlines.len()
-            || out.segments.len() < self.segments.len()
-            || out.run_slices.len() < self.run_slices.len()
-            || out.source_outline_indices.len() < self.source_outline_indices.len()
-            || out.run_outline_indices.len() < self.run_outline_indices.len()
-            || out.outline_owners.len() < self.outline_owners.len()
-            || out.positioned_outline_indices.len() < self.positioned_outline_indices.len()
-        {
-            return Err(NativeParagraphGeometryError::InsufficientCapacity);
-        }
+        self.preflight_copy(&out)?;
         out.font_sources[..self.font_sources.len()].copy_from_slice(&self.font_sources);
         out.font_bytes[..self.font_bytes.len()].copy_from_slice(&self.font_bytes);
         out.device_styles[..self.device_styles.len()].copy_from_slice(&self.device_styles);
@@ -438,6 +402,49 @@ impl NativeParagraphResource {
         out.positioned_outline_indices[..self.positioned_outline_indices.len()]
             .copy_from_slice(&self.positioned_outline_indices);
         Ok(self.metadata)
+    }
+    pub(crate) fn preflight_copy(
+        &self,
+        out: &NativeParagraphResourceBuffers<'_>,
+    ) -> Result<(), NativeParagraphGeometryError> {
+        if out.font_sources.len() < self.font_sources.len()
+            || out.font_bytes.len() < self.font_bytes.len()
+            || out.device_styles.len() < self.device_styles.len()
+            || out.variation_coordinates_16_16.len() < self.variation_coordinates_16_16.len()
+            || out.normalized_coordinates.len() < self.normalized_coordinates.len()
+            || out.source_scalars.len() < self.source_scalars.len()
+            || out.admitted_scalars.len() < self.admitted_scalars.len()
+            || out.pre_context.len() < self.pre_context.len()
+            || out.post_context.len() < self.post_context.len()
+            || out.scalar_levels.len() < self.scalar_levels.len()
+            || out.styles.len() < self.styles.len()
+            || out.source_metrics.len() < self.source_metrics.len()
+            || out.runs.len() < self.runs.len()
+            || out.logical_glyphs.len() < self.logical_glyphs.len()
+            || out.logical_owners.len() < self.logical_owners.len()
+            || out.logical_cluster_ends.len() < self.logical_cluster_ends.len()
+            || out.logical_bidi_levels.len() < self.logical_bidi_levels.len()
+            || out.glyph_scales.len() < self.glyph_scales.len()
+            || out.positioned_glyphs.len() < self.positioned_glyphs.len()
+            || out.positioned_owners.len() < self.positioned_owners.len()
+            || out.positioned_cluster_ends.len() < self.positioned_cluster_ends.len()
+            || out.positioned_bidi_levels.len() < self.positioned_bidi_levels.len()
+            || out.lines.len() < self.lines.len()
+            || out.line_origins.len() < self.line_origins.len()
+            || out.boxes.len() < self.boxes.len()
+            || out.carets.len() < self.carets.len()
+            || out.features.len() < self.features.len()
+            || out.outlines.len() < self.outlines.len()
+            || out.segments.len() < self.segments.len()
+            || out.run_slices.len() < self.run_slices.len()
+            || out.source_outline_indices.len() < self.source_outline_indices.len()
+            || out.run_outline_indices.len() < self.run_outline_indices.len()
+            || out.outline_owners.len() < self.outline_owners.len()
+            || out.positioned_outline_indices.len() < self.positioned_outline_indices.len()
+        {
+            return Err(NativeParagraphGeometryError::InsufficientCapacity);
+        }
+        Ok(())
     }
     /// Retain independent copies, including exact original font bytes and no-ink slots.
     pub fn try_copy(&self) -> Result<Self, NativeParagraphGeometryError> {

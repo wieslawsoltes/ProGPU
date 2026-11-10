@@ -1,5 +1,6 @@
-//! Full original raw resource import admission. No source-double projection or
-//! reconstructed native producer owner is accepted by this raw transport lane.
+//! Complete original base resource admission. The additive source lane requires
+//! empty float interaction and separately admits every version-two source record;
+//! the raw lane retains its original float interaction proof.
 use super::*;
 fn scalar(c: u32) -> bool {
     char::from_u32(c).is_some()
@@ -52,7 +53,10 @@ fn min(a: f32, b: f32) -> f32 {
 fn max(a: f32, b: f32) -> f32 {
     if a < b { b } else { a }
 }
-pub(super) fn validate(v: &NativeParagraphResource) -> Result<(), NativeParagraphGeometryError> {
+pub(super) fn validate(
+    v: &NativeParagraphResource,
+    source_geometry: bool,
+) -> Result<(), NativeParagraphGeometryError> {
     let m = v.metadata;
     let l = m.layout;
     policy(m.dpi_scale, m.projection, m.coverage)?;
@@ -519,7 +523,11 @@ pub(super) fn validate(v: &NativeParagraphResource) -> Result<(), NativeParagrap
                 && extent(c.x, c.y, 0.0, c.height),
         )?;
     }
-    interaction(v)
+    if source_geometry {
+        checked(v.boxes.is_empty() && v.carets.is_empty())
+    } else {
+        interaction(v)
+    }
 }
 fn interaction(v: &NativeParagraphResource) -> Result<(), NativeParagraphGeometryError> {
     let exact = |a: f32, b: f32| a.to_bits() == b.to_bits();

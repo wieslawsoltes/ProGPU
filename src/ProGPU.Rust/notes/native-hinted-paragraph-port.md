@@ -81,20 +81,22 @@ Rust allocation behavior, so this is not a recoverable-all-allocation guarantee.
 
 ## Independent remaining layers
 
-- Source-double layout, exact `SourceIdealUnits` integer line measure, source
-  fitting/recomposition, source-soft-wrap-space and whole-run placement policy
-  remain separate unimplemented native paragraph entry points. This API does not
-  accept or narrow those policies into the float route.
+- Source-double layout, exact `SourceIdealUnits` integer line measure, native
+  fitting/recomposition, source-soft-wrap-space, whole-run placement, double
+  interaction and v2 resources are implemented by the subsequent
+  `native-source-paragraph-port.md` increment. This raw API rejects source
+  generations on float reflow/interaction and never silently narrows them.
 - The generic unhinted paragraph producer's inline objects, incremental tabs,
   synthetic trimming, fragment/exclusion/floating layout and vertical paragraphs
   are not added here. The hinted original opt-in rejects these same shape/item
   contracts. Source interaction/empty-hard-row/fragment navigation APIs remain
   distinct; only the original nonfragment raw float interaction is claimed.
-- The new paragraph retains complete source/resource ownership and complete
-  positioned/interaction copies, but native paragraph-to-combined captured glyph
-  geometry and C ABI source-resource import/cache wire records are still separate
-  implementation work. Existing one-run `NativeHintedSourceGeometry` and GPU replay
-  remain unchanged; no fabricated one-run or metadata-free paragraph is emitted.
+- Combined paragraph captured geometry, raw flat owned import/copy and styled
+  GPU Scene replay are implemented by the subsequent
+  `native-paragraph-geometry-import-port.md` increment. Source-double resource
+  extensions are implemented in `native-source-paragraph-port.md`; native
+  C ABI/channel/cache entry points remain independent. No fabricated one-run or
+  metadata-free paragraph is emitted.
 - Original context plan cache/diagnostic counters, owned OS font discovery and
   fallback preference catalogs are not synthesized by the safe paragraph API.
 - Actual safe pinned FreeType execution/binding and all original source/provider,

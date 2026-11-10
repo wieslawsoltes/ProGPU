@@ -197,6 +197,7 @@ pub(super) fn build(
     let stage = NativeParagraphStage::Shaping;
     // All source/feature/style arrays are owned before the first provider callback.
     let mut v = NativeParagraphSource {
+        source_policies: None,
         source: copied(input).map_err(|e| error(stage, e))?,
         input: copied(input).map_err(|e| error(stage, e))?,
         fonts: copied(fonts).map_err(|e| error(stage, e))?,

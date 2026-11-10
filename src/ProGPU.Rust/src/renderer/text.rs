@@ -9,6 +9,7 @@ use crate::{
 };
 
 mod hinted;
+mod source_capture;
 use hinted::{HintedPaintState, PreparedHintedPaint};
 
 pub(super) struct TextState {

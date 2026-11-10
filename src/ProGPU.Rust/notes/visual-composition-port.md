@@ -230,3 +230,14 @@ Original SHA-256 sources:
 | `ProGPU.WinUI/Composition/CompositionShadows.cs` | `703127198465f9418651321f09691246fab15586db57319698ff0b8481efc87e` |
 | `ProGPU.Scene/Visual.cs` | `546cd62ba3f2c0d4a85f1479d8c4122c0032b46b090341d088a2749fa1c264fe` |
 | `ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` |
+
+Arbitrary text-in-SourceMask captures now use a private exclusive text-owner
+transaction (`renderer/text/source_capture.rs`). It preserves any outer atlas,
+starts an independent source tree batch, captures only after actual residency and
+batch completion, and restores the outer atlas/tree flag on success, failure or
+cancellation. Ordinary outer glyph positions, font generations and atlas policies
+are unchanged. Temporary GPU handles stay retained by the submitted commands;
+source recording/producer owners use the existing submission-retention path. No
+Drop path flushes, polls or destroys a live texture. Text-mask implementation is
+present; original pixels, cancellation/lifetime qualification and performance
+validation remain deferred with the rest of the port.

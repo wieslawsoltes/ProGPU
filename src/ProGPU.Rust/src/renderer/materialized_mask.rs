@@ -416,9 +416,9 @@ impl Renderer {
             for _ in 0..index {
                 recording.pop_scope()?;
             }
-            let prepared = Box::pin(self.prepare_target_scene_inner(&recording, root)).await?;
-            let capture = self.capture(&prepared, None).await?;
-            metrics.merge(prepared.mask_composition_metrics())?;
+            let (capture, source_masks) =
+                Box::pin(self.capture_mask_source(&recording, root)).await?;
+            metrics.merge(source_masks)?;
             let source_metrics = capture.source_preparation_metrics();
             metrics.merge(MaskCompositionMetrics {
                 source_captures: 1,

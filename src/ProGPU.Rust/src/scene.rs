@@ -494,6 +494,7 @@ impl Scene {
     pub fn clear(&mut self) {
         self.commands.clear();
         self.scope_depth = 0;
+        self.blend_depth = 0;
         self.has_scopes = false;
         self.layer_depth = 0;
         self.has_axis = false;

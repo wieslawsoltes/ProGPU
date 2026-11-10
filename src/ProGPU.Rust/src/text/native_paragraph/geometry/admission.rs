@@ -132,6 +132,13 @@ pub(super) fn paragraph(p: &NativeHintedParagraph) -> Result<(), NativeParagraph
                 let descriptor = run.descriptor_indices()[original];
                 let g = s.logical[logical];
                 let mut expected = run.glyphs()[original];
+                if let Some(policies) = &s.source_policies {
+                    expected = policies
+                        .get(r.style_index as usize)
+                        .ok_or(NativeParagraphGeometryError::InvalidLayout)?
+                        .project_advance(expected)
+                        .map_err(|_| NativeParagraphGeometryError::InvalidLayout)?;
+                }
                 expected.advance_y = expected
                     .advance_y
                     .checked_neg()
