@@ -1,6 +1,8 @@
 //! Original generic unhinted paragraph core, separate from device/source paragraphs.
 use super::*;
+mod flow;
 mod prepare;
+pub use flow::*;
 /// Original explicit styled selection; empty inventory selects native fallback.
 #[derive(Clone, Debug)]
 pub struct NativeDesignStyle {

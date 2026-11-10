@@ -6,6 +6,8 @@ use super::{
     unicode::{UnicodeScalar, line_break::LineBreakKind},
 };
 use crate::font::{FontError, layout::GposDirection};
+mod flow;
+pub use flow::*;
 mod vertical;
 pub use vertical::*;
 mod scan;
