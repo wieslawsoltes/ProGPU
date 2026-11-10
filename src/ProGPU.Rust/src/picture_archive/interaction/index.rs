@@ -26,6 +26,7 @@ pub struct ArchiveHitIndex {
     source_visuals: Arc<[Arc<SourceVisualSnapshot>]>,
     source_lists: Arc<[Arc<SourceCommandList>]>,
     source_glyphs: Arc<[Arc<SourceGlyphInput>]>,
+    native_scene: Option<crate::native_scene::NativeScene>,
 }
 impl ArchiveHitIndex {
     pub fn bounds(&self) -> [f32; 4] {
@@ -98,6 +99,7 @@ impl ArchiveHitIndex {
             source_visuals: Arc::from([]),
             source_lists: Arc::from([]),
             source_glyphs: Arc::from([]),
+            native_scene: None,
         })
     }
     pub(super) fn build(
@@ -130,6 +132,37 @@ impl ArchiveHitIndex {
     }
     pub fn captured_command_owners(&self) -> &[Arc<CapturedHitCommand>] {
         &self.captured
+    }
+
+    /// Actual admitted native stream generation, retained by native query
+    /// imports through GPU submissions and pending query readbacks.
+    pub fn native_scene_owner(&self) -> Option<&crate::native_scene::NativeScene> {
+        self.native_scene.as_ref()
+    }
+
+    /// The caller owns an already admitted native hit page. Preserve its exact
+    /// topology and ordered references; rebuilding the quadtree would change
+    /// the original GPU query traversal order.
+    pub(crate) fn from_native_scene(
+        scene: crate::native_scene::NativeScene,
+        primitives: Arc<[HitPrimitive]>,
+        segments: Arc<[crate::path::Segment]>,
+        nodes: Arc<[HitNode]>,
+        indices: Arc<[u32]>,
+    ) -> Self {
+        Self {
+            primitives,
+            segments,
+            nodes,
+            indices,
+            pictures: Arc::from([]),
+            commands: Arc::from([]),
+            captured: Arc::from([]),
+            source_visuals: Arc::from([]),
+            source_lists: Arc::from([]),
+            source_glyphs: Arc::from([]),
+            native_scene: Some(scene),
+        }
     }
 }
 struct Tree<'a> {

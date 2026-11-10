@@ -15,7 +15,7 @@ fn overlaps(a: u32, n: u32, b: u32, m: u32) -> bool {
         && u64::from(a) < u64::from(b) + u64::from(m)
         && u64::from(b) < u64::from(a) + u64::from(n)
 }
-fn arena(offset: u32, size: u32, h: &wire::Header) -> bool {
+pub(super) fn arena(offset: u32, size: u32, h: &wire::Header) -> bool {
     if size == 0 {
         return offset == 0;
     }
@@ -24,86 +24,94 @@ fn arena(offset: u32, size: u32, h: &wire::Header) -> bool {
         && u64::from(offset) + u64::from(size)
             <= u64::from(h.arena_offset) + u64::from(h.arena_size)
 }
+pub(super) fn read_header(bytes: &[u8]) -> TransportResult<wire::Header> {
+    if cfg!(target_endian = "big")
+        || bytes.len() < wire::Header::WIRE_SIZE
+        || bytes.len() > MAX_STREAM_BYTES as usize
+    {
+        return Err(error(E::Header, 0));
+    }
+    let h = wire::Header::read(&bytes).ok_or_else(|| error(E::Header, 0))?;
+    if h.struct_size < wire::Header::WIRE_SIZE as u32
+        || h.struct_size as usize > bytes.len()
+        || h.magic != STREAM_MAGIC
+        || h.stream_version != STREAM_VERSION
+        || h.endian_marker != ENDIAN_MARKER
+        || h.flags != 0
+        || h.scene_id == 0
+        || h.generation == 0
+        || h.total_size as usize != bytes.len()
+        || h.reserved0 != 0
+        || h.reserved1 != 0
+    {
+        return Err(error(E::Header, 0));
+    }
+    if h.command_count > MAX_COMMANDS
+        || h.resource_count > MAX_RESOURCES
+        || h.command_stride < wire::Command::WIRE_SIZE as u32
+        || h.resource_stride < wire::Resource::WIRE_SIZE as u32
+        || h.command_stride & 7 != 0
+        || h.resource_stride & 7 != 0
+        || h.command_offset & 7 != 0
+        || h.resource_offset & 7 != 0
+        || h.arena_offset & 7 != 0
+        || h.command_offset < h.struct_size
+        || h.resource_offset < h.struct_size
+        || h.arena_offset < h.struct_size
+        || !table_fits(
+            h.command_offset,
+            h.command_count,
+            h.command_stride,
+            h.total_size,
+        )
+        || !table_fits(
+            h.resource_offset,
+            h.resource_count,
+            h.resource_stride,
+            h.total_size,
+        )
+        || !fits(h.arena_offset, h.arena_size, h.total_size)
+    {
+        return Err(error(E::Range, 0));
+    }
+    let command_bytes = h.command_count * h.command_stride;
+    let resource_bytes = h.resource_count * h.resource_stride;
+    if overlaps(
+        h.command_offset,
+        command_bytes,
+        h.resource_offset,
+        resource_bytes,
+    ) || overlaps(
+        h.command_offset,
+        command_bytes,
+        h.arena_offset,
+        h.arena_size,
+    ) || overlaps(
+        h.resource_offset,
+        resource_bytes,
+        h.arena_offset,
+        h.arena_size,
+    ) {
+        return Err(error(E::Range, 0));
+    }
+    Ok(h)
+}
 #[derive(Clone, Debug)]
 pub struct NativeSceneEnvelope {
     bytes: Arc<[u8]>,
     header: wire::Header,
 }
 impl NativeSceneEnvelope {
+    pub(super) fn from_admitted(bytes: Arc<[u8]>, header: wire::Header) -> Self {
+        Self { bytes, header }
+    }
+
     /// Retain one immutable stream after original header, table/arena, raw
     /// descriptor, ID and generic flag admission. Resource contents, command
     /// references, scope semantics and target/device policy are NOT admitted.
     pub fn new(bytes: impl Into<Arc<[u8]>>) -> TransportResult<Self> {
         let bytes = bytes.into();
-        if cfg!(target_endian = "big")
-            || bytes.len() < wire::Header::WIRE_SIZE
-            || bytes.len() > MAX_STREAM_BYTES as usize
-        {
-            return Err(error(E::Header, 0));
-        }
-        let h = wire::Header::read(&bytes).ok_or_else(|| error(E::Header, 0))?;
-        if h.struct_size < wire::Header::WIRE_SIZE as u32
-            || h.struct_size as usize > bytes.len()
-            || h.magic != STREAM_MAGIC
-            || h.stream_version != STREAM_VERSION
-            || h.endian_marker != ENDIAN_MARKER
-            || h.flags != 0
-            || h.scene_id == 0
-            || h.generation == 0
-            || h.total_size as usize != bytes.len()
-            || h.reserved0 != 0
-            || h.reserved1 != 0
-        {
-            return Err(error(E::Header, 0));
-        }
-        if h.command_count > MAX_COMMANDS
-            || h.resource_count > MAX_RESOURCES
-            || h.command_stride < wire::Command::WIRE_SIZE as u32
-            || h.resource_stride < wire::Resource::WIRE_SIZE as u32
-            || h.command_stride & 7 != 0
-            || h.resource_stride & 7 != 0
-            || h.command_offset & 7 != 0
-            || h.resource_offset & 7 != 0
-            || h.arena_offset & 7 != 0
-            || h.command_offset < h.struct_size
-            || h.resource_offset < h.struct_size
-            || h.arena_offset < h.struct_size
-            || !table_fits(
-                h.command_offset,
-                h.command_count,
-                h.command_stride,
-                h.total_size,
-            )
-            || !table_fits(
-                h.resource_offset,
-                h.resource_count,
-                h.resource_stride,
-                h.total_size,
-            )
-            || !fits(h.arena_offset, h.arena_size, h.total_size)
-        {
-            return Err(error(E::Range, 0));
-        }
-        let command_bytes = h.command_count * h.command_stride;
-        let resource_bytes = h.resource_count * h.resource_stride;
-        if overlaps(
-            h.command_offset,
-            command_bytes,
-            h.resource_offset,
-            resource_bytes,
-        ) || overlaps(
-            h.command_offset,
-            command_bytes,
-            h.arena_offset,
-            h.arena_size,
-        ) || overlaps(
-            h.resource_offset,
-            resource_bytes,
-            h.arena_offset,
-            h.arena_size,
-        ) {
-            return Err(error(E::Range, 0));
-        }
+        let h = read_header(&bytes)?;
         let result = Self { bytes, header: h };
         let mut previous_id = 0;
         for index in 0..h.resource_count {
@@ -298,46 +306,8 @@ impl NativeSceneEnvelope {
         }
         Ok(())
     }
-    fn unique_command_ids(&self) -> TransportResult<()> {
-        let h = self.header;
-        if h.command_count < 2 {
-            return Ok(());
-        }
-        let mut current = reserve(h.command_count as usize, h.command_offset)?;
-        let mut scratch = reserve(h.command_count as usize, h.command_offset)?;
-        for index in 0..h.command_count {
-            let offset = h.command_offset + index * h.command_stride;
-            current.push(
-                wire::Command::read(&self.bytes[offset as usize..])
-                    .ok_or_else(|| error(E::Record, offset))?
-                    .command_id,
-            );
-        }
-        scratch.resize(current.len(), 0u64);
-        // Original eight stable byte-radix passes; no hash or source-ID rewrite.
-        for pass in 0..8 {
-            let mut counts = [0usize; 256];
-            let shift = pass * 8;
-            for &id in &current {
-                counts[(id >> shift) as u8 as usize] += 1;
-            }
-            let mut position = 0;
-            for count in &mut counts {
-                let next = position + *count;
-                *count = position;
-                position = next;
-            }
-            for &id in &current {
-                let bucket = (id >> shift) as u8 as usize;
-                scratch[counts[bucket]] = id;
-                counts[bucket] += 1;
-            }
-            std::mem::swap(&mut current, &mut scratch);
-        }
-        if current.windows(2).any(|v| v[0] == v[1]) {
-            return Err(error(E::Id, h.command_offset));
-        }
-        Ok(())
+    pub(super) fn unique_command_ids(&self) -> TransportResult<()> {
+        unique_command_ids(&self.bytes, self.header)
     }
 }
 #[derive(Clone, Copy, Debug)]
@@ -391,3 +361,44 @@ impl<'a> Iterator for Commands<'a> {
 }
 impl ExactSizeIterator for Commands<'_> {}
 impl std::iter::FusedIterator for Commands<'_> {}
+
+pub(super) fn unique_command_ids(bytes: &[u8], h: wire::Header) -> TransportResult<()> {
+    if h.command_count < 2 {
+        return Ok(());
+    }
+    let mut current = reserve(h.command_count as usize, h.command_offset)?;
+    let mut scratch = reserve(h.command_count as usize, h.command_offset)?;
+    for index in 0..h.command_count {
+        let offset = h.command_offset + index * h.command_stride;
+        current.push(
+            wire::Command::read(&bytes[offset as usize..])
+                .ok_or_else(|| error(E::Record, offset))?
+                .command_id,
+        );
+    }
+    scratch.resize(current.len(), 0u64);
+    // Original eight stable byte-radix passes; no hash or source-ID rewrite.
+    for pass in 0..8 {
+        let mut counts = [0usize; 256];
+        let shift = pass * 8;
+        for &id in &current {
+            counts[(id >> shift) as u8 as usize] += 1;
+        }
+        let mut position = 0;
+        for count in &mut counts {
+            let next = position + *count;
+            *count = position;
+            position = next;
+        }
+        for &id in &current {
+            let bucket = (id >> shift) as u8 as usize;
+            scratch[counts[bucket]] = id;
+            counts[bucket] += 1;
+        }
+        std::mem::swap(&mut current, &mut scratch);
+    }
+    if current.windows(2).any(|v| v[0] == v[1]) {
+        return Err(error(E::Id, h.command_offset));
+    }
+    Ok(())
+}

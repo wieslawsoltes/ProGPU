@@ -1,10 +1,18 @@
-//! Original pointer-free native scene stream transport and immutable ownership.
+//! Original pointer-free native scene transport, semantic admission and ownership.
 //!
 //! An envelope proves only framing and scalar descriptor admission. It is not a
 //! semantically validated scene and cannot be submitted to Renderer. Original
-//! resource payload, stack/source-policy and device gates remain independent.
+//! `NativeScene` applies the original ordered resource, command and stack gates.
+//! Subsequent engine-specific payload and device admission remain independent;
+//! neither transport nor semantic admission submits GPU work.
 use std::sync::Arc;
 mod envelope;
+mod hit;
+pub(crate) mod semantic;
+pub use semantic::{
+    NativeScene, NativeSceneAdmissionError, NativeSceneMask, NativeScenePayload,
+    NativeSceneResource, NativeSceneShader, NativeWireRecords,
+};
 pub mod wire;
 mod writer;
 pub use envelope::{CommandView, Commands, NativeSceneEnvelope, ResourceView, Resources};
