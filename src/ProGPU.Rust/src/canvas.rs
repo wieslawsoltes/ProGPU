@@ -16,7 +16,9 @@ pub use drawable::{CanvasDrawable, CanvasDrawableSource, DrawableSnapshot};
 mod matrix;
 mod texture_batch;
 pub use drawing::CanvasPointMode;
+mod picture;
 mod prepare;
+pub use picture::{PictureRecorder, RecordedPicture};
 #[cfg(feature = "gpu")]
 mod surface;
 pub use matrix::CanvasMatrix;
@@ -332,13 +334,16 @@ impl Canvas {
     }
     /// Finish all saved layers and scopes, publishing one independent picture.
     pub fn finish(mut self) -> Result<CanvasPicture, Error> {
+        self.finish_recording()
+    }
+    fn finish_recording(&mut self) -> Result<CanvasPicture, Error> {
         self.restore_to_count(1)?;
         while self.clips.pop().is_some() {
             self.push(Command::Pop)?;
         }
         Ok(CanvasPicture {
             size: self.size,
-            commands: self.commands.into(),
+            commands: std::mem::take(&mut self.commands).into(),
         })
     }
     fn snapshot_current(&self) -> CanvasPicture {

@@ -52,6 +52,7 @@ mod native_design;
 #[cfg(feature = "gpu")]
 mod shader_effect;
 mod source_capture;
+mod recording;
 mod text;
 #[cfg(feature = "gpu")]
 pub use managed_shader::ManagedShaderEffectDraw;
