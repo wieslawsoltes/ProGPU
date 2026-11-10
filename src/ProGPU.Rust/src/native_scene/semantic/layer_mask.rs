@@ -6,17 +6,17 @@ pub(super) struct ParsedLayerMask {
     /// Absolute owned-stream locations, in original component order.
     pub nested_streams: Vec<(u32, u32)>,
 }
-fn opacity(value: f32) -> bool {
+pub(crate) fn opacity(value: f32) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
-fn bounds(b: wire::ImageRect) -> bool {
+pub(crate) fn bounds(b: wire::ImageRect) -> bool {
     [b.x, b.y, b.width, b.height]
         .into_iter()
         .all(f32::is_finite)
         && b.width > 0.0
         && b.height > 0.0
 }
-fn transform(t: wire::Affine2d) -> bool {
+pub(crate) fn transform(t: wire::Affine2d) -> bool {
     let determinant = f64::from(t.m11) * f64::from(t.m22) - f64::from(t.m12) * f64::from(t.m21);
     if ![t.m11, t.m12, t.m21, t.m22, t.m31, t.m32]
         .into_iter()
@@ -38,7 +38,7 @@ fn transform(t: wire::Affine2d) -> bool {
     .into_iter()
     .all(|v| v.is_finite() && v >= -f64::from(f32::MAX) && v <= f64::from(f32::MAX))
 }
-fn analytic(m: &wire::LayerMask) -> bool {
+pub(crate) fn analytic(m: &wire::LayerMask) -> bool {
     let exact_clip = m.flags & SCENE_LAYER_MASK_AXIS_CLIP_AREA == 0
         || m.transform.m11 == 1.0
             && m.transform.m12 == 0.0
@@ -65,7 +65,7 @@ fn analytic(m: &wire::LayerMask) -> bool {
             .chain(m.corner_radii_y)
             .all(|v| v.is_finite() && v >= 0.0)
 }
-fn coverage(m: &wire::LayerCoverageMask, size: u32) -> bool {
+pub(crate) fn coverage(m: &wire::LayerCoverageMask, size: u32) -> bool {
     let bytes = if m.height == 0 {
         0
     } else {

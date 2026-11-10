@@ -6,6 +6,14 @@
 //! Subsequent engine-specific payload and device admission remain independent;
 //! neither transport nor semantic admission submits GPU work.
 use std::sync::Arc;
+pub mod builder;
+pub use builder::{
+    NativeSceneBuildError, NativeSceneBuildMetrics, NativeSceneBuilder, NativeSceneCompositeMask,
+    NativeSceneFullImageCopy, NativeSceneHitTestOpacityMode, NativeSceneImageOptions,
+    NativeSceneLayerHitTestMode, NativeSceneSaveOptions, NativeShapedTextSceneOptions,
+};
+pub mod identity;
+pub use identity::NativeSceneContentHashes;
 mod envelope;
 mod hit;
 pub(crate) mod semantic;

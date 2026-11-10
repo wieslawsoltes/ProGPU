@@ -35,7 +35,8 @@ Latest connected continuation (2026-11-10), implementation only:
 | ImageEffect reuse | Completion-owned parameter/blur pools, original module/pipeline/sampler caches, tracked source/mip/view generations, explicit host-frame aging and actual reuse metrics | Original runtime/pixel/lifetime/browser/performance controls |
 | Surface root flushing | Flush/snapshot of the actual root while save layers remain open, retaining child state and atomic prepared ownership | Existing Rust clip continuation remains distinct; original repeated-flush/clip/backdrop/source pixels |
 | Picture archive transport | Versions 1–10, all 39 command tags and fields, complete brush/pen/path/mesh/patch transport, typed recording and safe bounded scalar/vector IO | Exact bytes/version/error/stream/ownership controls |
-| Native scene stream | Independent native wire and immutable owners; original ordered semantic admission, nested dependencies, typed payload views, canonical packets and generation comparisons; exact admitted hit-page import into GPU-query storage | Native scene builder/render integration and independent execution/provider/target gates; all original byte/error/lifetime/browser/package/performance controls |
+| Native scene stream | Independent native wire and immutable owners; original ordered semantic admission, nested dependencies, typed payload views, canonical packets and generation comparisons; exact admitted hit-page import into GPU-query storage | Native renderer integration and independent execution/provider/target gates; all original byte/error/lifetime/browser/package/performance controls |
+| Native typed builder and identity | Original typed state, brush, path/vector/mesh, image, text, layer/mask/effect, source-input and recorded-hit producers; direct deterministic caller-buffer serialization; family hashes, source-scope collisions and append-only prefix reuse | Full native execution consumers and original source/byte/failure/ownership/SIMD/browser/performance qualification |
 | Archive rendering and capture | Ordered retained Canvas/Scene replay, original analytic triangle/quad/point/grid routes and explicit source-preserving capture; recorded-picture serialization | Unsupported GPU/provider/source-history records stay explicit; complete native/browser/pixel/performance qualification |
 | Image filter and picture factories | Exact subset/clip/offset filter application, optional context transfer, painted picture captures and full-sampling image/bitmap/surface Canvas producers | Original source/UV/lifetime/format/filter/browser/pixel/performance controls |
 | Target-dependent path and spline replay | Original rounded-path recognition/triangulation, final-target rectangle admission, text-path gamma and complete De Boor NURBS producers | Original numerical/target/byte/pixel/performance controls |
@@ -106,6 +107,10 @@ retains raw command/resource bytes and generation identity. The separate
 resource/command error order and nested source dependencies. Its hit pages retain
 their original topology and stream owner through the shared GPU-query path;
 engine, provider and actual-target admission remain independent.
+The [typed native builder](notes/native-scene-builder-port.md) records the original
+owned producer families and source input scopes; its direct writer returns exact
+stream metrics. [Retained native identities](notes/native-scene-identity-port.md)
+preserve independent family, resource generation and append-only reuse contracts.
 The [static Scene adapter](notes/static-dxf-scene-port.md) now owns complete
 target/source generations and exact mask/blend/scissor policy. Its
 [static text producer](notes/static-dxf-text-port.md) includes unchanged analytic

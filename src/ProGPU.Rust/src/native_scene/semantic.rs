@@ -6,6 +6,7 @@ pub(crate) mod brush;
 pub(crate) mod color_glyph;
 mod commands;
 pub(crate) mod hit;
+pub(crate) mod image_payload;
 mod inventory;
 pub(crate) mod layer_mask;
 mod resources;
