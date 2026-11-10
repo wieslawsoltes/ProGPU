@@ -1,5 +1,6 @@
-//! Original metadata-free font batch replay and retained selected occurrence views.
+//! Original captured batch/shaped-source replay and retained selected occurrence views.
 use super::*;
+use crate::text::hinted_source::{NativeHintedOccurrence, NativeHintedSourceGeometry};
 pub(super) const MAXIMUM_SLOTS: usize = 1 << 24;
 pub(super) const MAXIMUM_OUTLINES: usize = 1 << 20;
 const MAXIMUM_BINARY_SEGMENTS: usize = 256;
@@ -21,20 +22,26 @@ pub struct FontGlyphPlacement {
     pub position: [f32; 2],
 }
 #[derive(Debug)]
+enum SourceOwner {
+    Batch(Arc<NativeFontOutlineGeometry>),
+    Shaped(Arc<NativeHintedSourceGeometry>),
+}
+#[derive(Debug)]
 struct Generation {
-    source: Arc<NativeFontOutlineGeometry>,
+    source: SourceOwner,
     dpi_scale: f32,
     coverage: NativeHintedCoverage,
     outlines: Vec<GpuGlyphRecord>,
     segments: Vec<Segment>,
 }
-/// Immutable retained physical geometry and caller-owned placements. Selections
+/// Immutable retained physical geometry and original batch/shaped placements. Selections
 /// share the exact original source/raster generation; retiring the creating
 /// provider/cache/batch or another view cannot invalidate a retained view.
 #[derive(Debug)]
 pub struct FontReplayGeometry {
     generation: Arc<Generation>,
     placements: Vec<FontGlyphPlacement>,
+    occurrences: Option<Vec<NativeHintedOccurrence>>,
 }
 impl FontReplayGeometry {
     /// Import every original descriptor without shaping, hinting again or
@@ -120,13 +127,78 @@ impl FontReplayGeometry {
         }
         Ok(Self {
             generation: Arc::new(Generation {
-                source: owner,
+                source: SourceOwner::Batch(owner),
                 dpi_scale,
                 coverage,
                 outlines,
                 segments,
             }),
             placements,
+            occurrences: None,
+        })
+    }
+    /// Import an actual native fitted source without decoding, shaping or hinting
+    /// again. Original occurrence metadata and all raw descriptor slots remain owned.
+    pub fn from_shaped_source(
+        source: Arc<NativeHintedSourceGeometry>,
+    ) -> Result<Self, FontPolicyError> {
+        let dpi_scale = source.dpi_scale();
+        validate_dpi(dpi_scale)?;
+        require(
+            source.outlines().len() <= MAXIMUM_OUTLINES
+                && source.segments().len() <= MAXIMUM_SLOTS
+                && source.occurrences().len() <= MAXIMUM_SLOTS
+                && source.source_outline_indices().len() <= MAXIMUM_SLOTS
+                && source.run_outline_indices().len() <= MAXIMUM_SLOTS
+                && source.coverage() != NativeHintedCoverage::Monochrome,
+        )?;
+        validate_geometry(source.outlines(), source.segments(), false)?;
+        let mut outlines = Vec::new();
+        outlines
+            .try_reserve_exact(source.outlines().len())
+            .map_err(|_| FontPolicyError::ResourceExhausted)?;
+        for &outline in source.outlines() {
+            outlines.push(
+                outline
+                    .gpu_record()
+                    .map_err(|_| FontPolicyError::InvalidGeneration)?,
+            );
+        }
+        let segments = copy(source.segments())?;
+        let occurrences = copy(source.occurrences())?;
+        let mut placements = Vec::new();
+        placements
+            .try_reserve_exact(occurrences.len())
+            .map_err(|_| FontPolicyError::ResourceExhausted)?;
+        for occurrence in &occurrences {
+            require(
+                occurrence.outline_index == NATIVE_HINTED_NO_OUTLINE
+                    || (occurrence.outline_index as usize) < outlines.len(),
+            )?;
+            require(
+                occurrence
+                    .position
+                    .iter()
+                    .chain(&occurrence.advance)
+                    .all(|v| v.is_finite()),
+            )?;
+            placements.push(FontGlyphPlacement {
+                descriptor_index: occurrence.descriptor_index,
+                glyph_id: occurrence.glyph_id,
+                outline_index: occurrence.outline_index,
+                position: occurrence.position,
+            });
+        }
+        Ok(Self {
+            generation: Arc::new(Generation {
+                dpi_scale,
+                coverage: source.coverage(),
+                outlines,
+                segments,
+                source: SourceOwner::Shaped(source),
+            }),
+            placements,
+            occurrences: Some(occurrences),
         })
     }
     /// Retain selected occurrence slots in caller order, including duplicates and
@@ -140,10 +212,21 @@ impl FontReplayGeometry {
         placements
             .try_reserve_exact(indices.len())
             .map_err(|_| FontPolicyError::ResourceExhausted)?;
-        placements.extend(indices.into_iter().map(|index| self.placements[index]));
+        placements.extend(indices.iter().map(|&index| self.placements[index]));
+        let occurrences = if let Some(original) = &self.occurrences {
+            let mut selected = Vec::new();
+            selected
+                .try_reserve_exact(indices.len())
+                .map_err(|_| FontPolicyError::ResourceExhausted)?;
+            selected.extend(indices.iter().map(|&index| original[index]));
+            Some(selected)
+        } else {
+            None
+        };
         Ok(Self {
             generation: Arc::clone(&self.generation),
             placements,
+            occurrences,
         })
     }
     pub(crate) fn generation_identity(&self) -> usize {
@@ -151,8 +234,33 @@ impl FontReplayGeometry {
     }
     /// Exact selected capture/geometry owner; paired replay retains only the
     /// original Unhinted owner here, not its separate monochrome witness.
-    pub fn source_geometry(&self) -> &Arc<NativeFontOutlineGeometry> {
-        &self.generation.source
+    /// None identifies a separately retained shaped source.
+    pub fn source_geometry(&self) -> Option<&Arc<NativeFontOutlineGeometry>> {
+        match &self.generation.source {
+            SourceOwner::Batch(source) => Some(source),
+            _ => None,
+        }
+    }
+    /// Actual shaped native layout/capture owner, absent for metadata-free batches.
+    pub fn shaped_source_geometry(&self) -> Option<&Arc<NativeHintedSourceGeometry>> {
+        match &self.generation.source {
+            SourceOwner::Shaped(source) => Some(source),
+            _ => None,
+        }
+    }
+    /// True only when the actual original producer retained source shaping metadata.
+    pub fn has_shaping_metadata(&self) -> bool {
+        self.occurrences.is_some()
+    }
+    /// Selected original shaped occurrences; None rejects metadata-free batch access.
+    pub fn shaped_occurrences(&self) -> Option<&[NativeHintedOccurrence]> {
+        self.occurrences.as_deref()
+    }
+    /// Caller placement-only records, absent when the source owns shaped occurrences.
+    pub fn font_placements(&self) -> Option<&[FontGlyphPlacement]> {
+        self.occurrences
+            .is_none()
+            .then_some(self.placements.as_slice())
     }
     /// Actual original immutable GPU outline records.
     pub fn outlines(&self) -> &[GpuGlyphRecord] {
@@ -162,7 +270,8 @@ impl FontReplayGeometry {
     pub fn segments(&self) -> &[Segment] {
         &self.generation.segments
     }
-    /// Every selected original descriptor/position, including no-ink slots.
+    /// Common renderer placement projection of each selected descriptor, including
+    /// no-ink. Use font_placements/shaped_occurrences to preserve metadata semantics.
     pub fn placements(&self) -> &[FontGlyphPlacement] {
         &self.placements
     }

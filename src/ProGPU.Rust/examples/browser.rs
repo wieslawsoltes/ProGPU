@@ -59,6 +59,13 @@ mod shader_effect_sample;
 #[path = "support/text_scene.rs"]
 mod text_sample;
 
+#[cfg(target_arch = "wasm32")]
+#[path = "support/prepared_frame.rs"]
+mod prepared_frame;
+#[cfg(target_arch = "wasm32")]
+#[path = "support/visual_scene.rs"]
+mod visual_sample;
+
 #[path = "../tests/support/script_property_replay.rs"]
 #[cfg(target_arch = "wasm32")]
 mod script_property_replay;
@@ -96,7 +103,7 @@ mod web {
     use progpu::{
         geometry::{Affine, AnalyticPrimitive},
         path::{FillRule, Path, Segment},
-        renderer::{Frame, PreparedScene, Renderer},
+        renderer::{Frame, Renderer},
         scene::{PathDraw, PathSampling, Scene},
     };
     use std::sync::{
@@ -1692,7 +1699,8 @@ mod web {
         surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
         renderer: Renderer,
-        scene: Option<PreparedScene>,
+        scene: Option<super::prepared_frame::PreparedFrame>,
+        visual_root: Option<progpu::composition::visual::Visual>,
         material_scene: bool,
         text_font: Option<progpu::font::ManagedFont>,
         image_scene: bool,
@@ -1713,6 +1721,7 @@ mod web {
         owned_shader_scene: bool,
         cached_picture_scene: bool,
         path_effect_scene: bool,
+        visual_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
@@ -1786,6 +1795,7 @@ mod web {
             config,
             renderer,
             scene: None,
+            visual_root: None,
             material_scene: false,
             text_font: None,
             image_scene: false,
@@ -1806,6 +1816,7 @@ mod web {
             owned_shader_scene: false,
             cached_picture_scene: false,
             path_effect_scene: false,
+            visual_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
@@ -1855,6 +1866,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1890,6 +1902,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1914,6 +1927,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1937,6 +1951,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1960,6 +1975,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1983,6 +1999,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -2006,6 +2023,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -2029,6 +2047,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -2052,6 +2071,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -2075,6 +2095,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.visual_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -2122,6 +2143,12 @@ mod web {
             self.image_filter_scene = enabled;
             Ok(())
         }
+        /// Select the retained visual hierarchy with actual-target effects and caches.
+        pub fn select_visual_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.visual_scene = enabled;
+            Ok(())
+        }
         /// Select all nine original measured/analytic path-effect families.
         pub fn select_path_effect_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
@@ -2146,6 +2173,38 @@ mod web {
             self.ensure_live()?;
             if width == 0 || height == 0 {
                 self.scene = None;
+                return Ok(());
+            }
+            if self.visual_scene {
+                if self.visual_root.is_none() {
+                    self.visual_root = Some(super::visual_sample::visual_scene().map_err(error)?);
+                }
+                let root = self
+                    .visual_root
+                    .as_ref()
+                    .ok_or_else(|| error("missing visual generation"))?;
+                let prepared = self
+                    .renderer
+                    .prepare_visual(
+                        root,
+                        Frame {
+                            width,
+                            height,
+                            dpi_scale: dpi,
+                        },
+                    )
+                    .await
+                    .map_err(error)?;
+                self.ensure_live()?;
+                self.config.width = width;
+                self.config.height = height;
+                self.canvas.set_width(width);
+                self.canvas.set_height(height);
+                self.surface.configure(&self.device, &self.config);
+                self.scene = Some(prepared.into());
+                self.materialized_mask_sources = Default::default();
+                self.effect_metrics = Default::default();
+                self.axis_clip_metrics = Default::default();
                 return Ok(());
             }
             self.materialized_mask_sources = Default::default();
@@ -2289,7 +2348,7 @@ mod web {
             self.canvas.set_width(width);
             self.canvas.set_height(height);
             self.surface.configure(&self.device, &self.config);
-            self.scene = Some(scene);
+            self.scene = Some(scene.into());
             self.effect_metrics = effect_metrics;
             self.axis_clip_metrics = axis_clip_metrics;
             Ok(())
@@ -2418,6 +2477,20 @@ mod web {
                 field(&result, name, value)?;
             }
             if let Some(scene) = &self.scene {
+                if let Some(v) = scene.visual_metrics() {
+                    for (name, value) in [
+                        ("visualNodes", v.nodes as f64),
+                        ("visualPages", v.pages as f64),
+                        ("visualCulledPages", v.culled_pages as f64),
+                        ("visualCacheHits", v.cache_hits as f64),
+                        ("visualCaptures", v.captures as f64),
+                        ("visualMaskCaptures", v.mask_captures as f64),
+                        ("visualTextureBytes", v.texture_bytes as f64),
+                        ("visualEffectPasses", v.effect_passes as f64),
+                    ] {
+                        field(&result, name, value)?;
+                    }
+                }
                 let m = scene.metrics();
                 let layers = scene.layer_metrics();
                 let advanced = scene.advanced_blend_metrics();

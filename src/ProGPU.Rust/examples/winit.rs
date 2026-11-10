@@ -1,6 +1,6 @@
 //! A native window validating the retained ProGPU Rust/wgpu renderer.
 
-use progpu::renderer::{Frame, PreparedScene, Renderer};
+use progpu::renderer::{Frame, Renderer};
 use std::{error::Error, sync::Arc};
 use winit::{
     application::ApplicationHandler,
@@ -53,6 +53,11 @@ mod shader_effect_sample;
 #[path = "support/text_scene.rs"]
 mod text_sample;
 
+#[path = "support/prepared_frame.rs"]
+mod prepared_frame;
+#[path = "support/visual_scene.rs"]
+mod visual_sample;
+
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -74,6 +79,7 @@ enum CompositeGallery {
     OwnedShaders,
     CachedPictures,
     PathEffects,
+    Visuals,
 }
 
 struct WindowRenderer {
@@ -84,7 +90,8 @@ struct WindowRenderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     renderer: Renderer,
-    scene: Option<PreparedScene>,
+    scene: Option<prepared_frame::PreparedFrame>,
+    visual_root: Option<progpu::composition::visual::Visual>,
     material_scene: bool,
     text_font: Option<progpu::font::ManagedFont>,
     image_scene: bool,
@@ -156,6 +163,7 @@ impl WindowRenderer {
             config,
             renderer,
             scene: None,
+            visual_root: None,
             material_scene,
             text_font,
             image_scene,
@@ -181,6 +189,28 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
+        if self.composite_gallery == CompositeGallery::Visuals {
+            if self.visual_root.is_none() {
+                self.visual_root = Some(visual_sample::visual_scene()?);
+            }
+            let root = self
+                .visual_root
+                .as_ref()
+                .ok_or("missing visual generation")?;
+            let prepared = pollster::block_on(self.renderer.prepare_visual(root, frame))?;
+            let scene = prepared_frame::PreparedFrame::from(prepared);
+            eprintln!(
+                "visual preparation: {:?}; replay: {:?}",
+                scene.visual_metrics(),
+                scene.replay_metrics()
+            );
+            self.config.width = size.width;
+            self.config.height = size.height;
+            self.surface.configure(&self.device, &self.config);
+            self.scene = Some(scene);
+            self.window.request_redraw();
+            return Ok(());
+        }
         let source = if self.composite_gallery == CompositeGallery::AxisClips {
             let (scene, metrics) = pollster::block_on(axis_clip_sample::axis_clip_scene(
                 &mut self.renderer,
@@ -308,7 +338,7 @@ impl WindowRenderer {
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
-        self.scene = Some(scene);
+        self.scene = Some(scene.into());
         self.window.request_redraw();
         Ok(())
     }
@@ -456,6 +486,7 @@ fn main() -> Result<()> {
             "--owned-shaders" => app.composite_gallery = CompositeGallery::OwnedShaders,
             "--cached-pictures" => app.composite_gallery = CompositeGallery::CachedPictures,
             "--path-effects" => app.composite_gallery = CompositeGallery::PathEffects,
+            "--visuals" => app.composite_gallery = CompositeGallery::Visuals,
             "--path-programs" => app.composite_gallery = CompositeGallery::PathPrograms,
             "--materialized-masks" => app.composite_gallery = CompositeGallery::MaterializedMasks,
             "--image-effects" => app.composite_gallery = CompositeGallery::ImageEffects,
@@ -475,7 +506,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --path-effects, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --path-effects, --visuals, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

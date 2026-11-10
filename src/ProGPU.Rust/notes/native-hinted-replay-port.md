@@ -45,7 +45,8 @@ crate's existing allocation contract. Rust exclusive async atlas ownership repla
 the original mutable compositor lifetime; cancelled work cannot publish residency.
 
 Independent remaining scope: actual safe FreeType backend and dependency/loaded
-image verification, shaped-paragraph-to-captured-geometry source adapters, original
+image verification, multi-style shaped-paragraph source adapters (single native runs are now connected in
+`native-hinted-source-layout-port.md`), original
 static DXF/late-camera replay, direct per-glyph destination-sampling advanced blend
 integration and R8 mask-target paint pipeline variants. These source paths are not
 relabeled as the connected source-over Scene route. Ordinary rendering policies

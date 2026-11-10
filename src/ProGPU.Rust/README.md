@@ -28,7 +28,7 @@ connects retained rendering, samples and package source inventory.
 
 | Latest parallel slice | Implemented | Remaining integration |
 | --- | --- | --- |
-| Native GPOS and shaping | All nine families and unified ordinary/Arabic/USE/Hangul/Hebrew/Thai-Lao/Indic/Myanmar/Khmer stages; complete design-unit positioning, fallback/stretch, safe-fragment Verify and explicit captured-device 26.6 algorithms | Actual verified hinted backend and renderer replay; all source/browser/performance qualification |
+| Native GPOS and shaping | All nine families and unified script/device orchestration; measured native single-run layout/fitting/tabs/bidi/ellipsis/justification/intrinsic widths, actual hinted source geometry and connected captured-font replay | Actual verified hinted backend, native multi-style/source-double/exclusion/vertical/interaction orchestration and all qualification |
 | Image codecs/raster | Exact native PNG parser plus owned ICO/CUR/DIB/RLE, original codec results/scaling/incremental policy, 29 pixel formats, stride-aware pixmaps/bitmap ownership, immutable snapshots, CPU resize and encoding policy | Original ordinary decoder/encoder backend byte/quality parity, GPU surface/context factories and all qualification |
 | Color filters | Immutable graph/factories, CPU brush colors, exact matrix packets, direct Texture drawing and full retained matrix/table/nonlinear/constant/compose/lerp graph execution with live mipmaps | Original runtime GPU identity / CPU Clear policy connected; all qualification |
 | Programmable shader effects | Original bytecode/v1–v6 plus managed WGSL/16 samplers, owned source/recording recipes, complete actual-target cache/rollback, immutable sampler/input captures and deferred completed-frame retirement | Full source visual policy/transport, perspective source compilation and all qualification |
@@ -36,14 +36,21 @@ connects retained rendering, samples and package source inventory.
 | Source captures | Original independent physical/projection/logical/DPI frames, pre-raster source placement, exact clip/mask edges, complete device preflight and owned raw-cache source/revision/device generations | Full source transport and original pixels/lifetime/performance qualification |
 | Color spaces and animation | Original ICC ownership/parser, XYZ/primaries/CICP/RGB factories and conversion adapters; complete keyframe/easing/spring/expression timing | Visual property binding, full source integration and all numerical/runtime qualification |
 | Cached pictures and visuals | Transactional cache sources/leases and twelve host panels; visual/shape/brush hierarchy, animation and immutable pages; actual-target visual traversal, template order, layers/effects, immutable cache reuse, analytic/texture masks and local culling | Typed source shader/shadow adapters, perspective/camera traversal, source/platform policies and all qualification |
-| Hinted fonts and runtime effects | Native backend/FIFO/transport and paired unfitted scan replay; exact captured-font Scene/atlas/GPU replay with solid, spatial and image paint; complete runtime reflection/uniforms/children | Actual verified FreeType binding, shaped-source and late-camera adapters, advanced destination/R8 variants; runtime shader/blender execution stays unsupported |
+| Hinted fonts and runtime effects | Native backend/FIFO/transport and paired unfitted scan replay; exact captured-font Scene/atlas/GPU replay with solid/spatial/image paint and original shaped-source occurrence ownership; complete runtime reflection/uniforms/children | Actual verified FreeType binding, multi-style and late-camera adapters, advanced destination/R8 variants; runtime shader/blender execution stays unsupported |
 | Path measurement/effects | Original contour sampling, analytic slicing, bounded scratch and all nine families; raw/force-close iterators, analytic arc-run conversion and typed stamp metadata; twelve shared host panels | Remaining legacy builder/paint-object integration, rational-cubic/deferred raw policy and all numerical/runtime/performance qualification |
 | Four-corner rounded rectangles | Original six classifications, radius normalization, exact containment, inset/outset, axis-preserving transforms and analytic line/arc output | Remaining legacy canvas/paint adapters and all source numerical/runtime/pixel qualification |
 | Destination operations | Retained all-code ROP3 with solid/tile/texture patterns, canonical source/compose/copy passes and explicit uniform-backdrop engine | Automatic uniform-target selection/cache, complete source commands and platform policies |
-| Host samples | Shared compositor/bytecode galleries plus 16 color-filter, 12 managed WGSL, 24 full image-filter and 12 owned nested-shader panels | Authored only; compilation and execution deferred |
+| Host samples | Shared compositor/bytecode galleries plus 16 color-filter, 12 managed WGSL, 24 full image-filter, 12 owned nested-shader and 12 actual visual-tree panels | Authored only; compilation and execution deferred |
 
 Exact sources, ownership and gaps are recorded in [implementation notes](notes/)
 and the [design ledger](DESIGN.md). No existing evidence qualifies this checkpoint.
+
+The desktop `--visuals` and browser `?scene=visuals` sample selects twelve actual
+visual-tree panels: direct/per-draw opacity, rotation, optional/required cache,
+rectangle/rounded clips, Gaussian/Box blur, shadow, blend and opacity masks. Both
+hosts retain the complete `PreparedVisual` snapshot/capture generation through
+presentation and expose actual visual preparation counters. The source tree stays
+alive across resize; this authored sample has not been compiled or executed.
 
 Current implementation batch (2026-11-09): the managed TrueType and owned CFF1
 routes now connect original script/direction/feature planning, complete GSUB stage
