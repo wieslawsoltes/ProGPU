@@ -503,6 +503,13 @@ progpu_native_status progpu_native_engine_update_scene(
         engine, stream, stream_size, metrics);
 }
 
+progpu_native_status progpu_native_engine_update_scene_delta(
+    progpu_native_engine* engine,
+    const progpu_native_scene_delta* delta,
+    progpu_native_scene_metrics* metrics) {
+    return progpu::native::execution::update_scene_delta(engine, delta, metrics);
+}
+
 progpu_native_status progpu_native_engine_register_glyph_outlines(
     progpu_native_engine* engine,
     const progpu_native_registered_glyph_outline* outlines,
