@@ -138,6 +138,7 @@ inline void collect_engine_memory(
     collect_memory(inventory, engine.semantic_advanced_source_slot);
     collect_memory(inventory, engine.semantic_layer_coverage_slot);
     collect_memory(inventory, engine.semantic_advanced_output_slot);
+    for (const auto page : engine.layer_mask_slot_pages) inventory.buffer(page);
     for (const auto& span : engine.semantic_render_bundle_spans) {
         if (span.shader_effect) collect_memory(inventory, *span.shader_effect);
         inventory.buffer(span.mask_uniform_buffer);

@@ -22,6 +22,7 @@
 #include "progpu_native_semantic_glyph_identity.hpp"
 #include "progpu_native_semantic_glyph_keys.hpp"
 #include "progpu_native_semantic_image_tests.hpp"
+#include "progpu_native_mask_uniform_slots.hpp"
 #include "progpu_native_semantic_layer_mask_tests.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
 #include "progpu_native_semantic_span_commands.hpp"
@@ -712,6 +713,149 @@ void span_command_lists_hold_one_reference_and_replay_exactly() {
         require(span_test_ops::held(50U) == 1);
     }
     require(span_test_ops::held(50U) == 0);
+}
+
+void mask_uniform_slots_keep_given_slots_until_the_frame_begins() {
+    using namespace progpu::native::mask_slots;
+    struct write {
+        std::uint32_t page;
+        std::uint32_t offset;
+        std::uint32_t size;
+        std::vector<std::byte> bytes;
+    };
+    const auto flushed = [](slot_table& table) {
+        std::vector<write> writes;
+        table.flush([&writes](
+            std::uint32_t page, std::uint32_t offset,
+            const std::byte* bytes, std::uint32_t size) {
+            writes.push_back(
+                {page, offset, size,
+                    std::vector<std::byte>(bytes, bytes + size)});
+        });
+        return writes;
+    };
+    std::array<std::uint8_t, 96U> uniforms{};
+    const auto fill = [&uniforms](std::uint8_t value) {
+        uniforms.fill(value);
+        return static_cast<const void*>(uniforms.data());
+    };
+
+    slot_table table;
+    require(table.page_count() == 0U && table.slot_count() == 0U);
+    require(!table.pending());
+    require(flushed(table).empty());
+
+    // Bytes that do not fit a slot, no bytes and a null pointer are refused
+    // and no page is made for them.
+    std::array<std::uint8_t, slot_stride + 1U> large{};
+    require(table.take(large.data(), large.size()) == no_slot);
+    require(table.take(uniforms.data(), 0U) == no_slot);
+    require(table.take(nullptr, uniforms.size()) == no_slot);
+    require(table.page_count() == 0U);
+
+    // The lowest slot first; the first page appears with the first slot.
+    require(table.take(fill(1U), uniforms.size()) == 0U);
+    require(table.take(fill(2U), uniforms.size()) == 1U);
+    require(table.take(fill(3U), uniforms.size()) == 2U);
+    require(table.page_count() == 1U);
+    require(table.slot_count() == slots_per_page);
+    require(table.taken() == 3U && table.pending());
+    require(page_of(2U) == 0U && offset_of(2U) == 2U * slot_stride);
+    require(page_of(slots_per_page + 3U) == 1U);
+    require(offset_of(slots_per_page + 3U) == 3U * slot_stride);
+
+    // One write per page: the slots staged since the last one, each with
+    // its bytes at its offset and zero behind them.
+    auto writes = flushed(table);
+    require(writes.size() == 1U);
+    require(writes[0].page == 0U && writes[0].offset == 0U);
+    require(writes[0].size == 3U * slot_stride);
+    for (std::uint32_t slot = 0U; slot < 3U; ++slot) {
+        const auto* bytes = writes[0].bytes.data() + slot * slot_stride;
+        require(bytes[0] == std::byte(slot + 1U));
+        require(bytes[uniforms.size() - 1U] == std::byte(slot + 1U));
+        require(bytes[uniforms.size()] == std::byte(0U));
+        require(bytes[slot_stride - 1U] == std::byte(0U));
+    }
+    require(!table.pending() && flushed(table).empty());
+
+    // A slot given back stays out of use until the frame begins: commands
+    // encoded with it must still find their bytes.
+    table.give(1U);
+    require(table.taken() == 2U);
+    require(table.take(fill(4U), uniforms.size()) == 3U);
+    writes = flushed(table);
+    require(writes.size() == 1U);
+    require(writes[0].offset == 3U * slot_stride);
+    require(writes[0].size == slot_stride);
+    require(writes[0].bytes[0] == std::byte(4U));
+
+    // A second give, a slot that was never taken and a slot out of range do
+    // no harm.
+    table.give(1U);
+    table.give(200U);
+    table.give(no_slot);
+    table.give(slots_per_page * 9U);
+    require(table.taken() == 3U);
+
+    table.recycle();
+    require(table.take(fill(5U), uniforms.size()) == 1U);
+    require(table.take(fill(6U), uniforms.size()) == 4U);
+    writes = flushed(table);
+    require(writes.size() == 1U);
+    // The range runs from the lowest to the highest staged slot; what lies
+    // between keeps the bytes it had.
+    require(writes[0].offset == slot_stride);
+    require(writes[0].size == 4U * slot_stride);
+    require(writes[0].bytes[0] == std::byte(5U));
+    require(writes[0].bytes[slot_stride] == std::byte(3U));
+    require(writes[0].bytes[2U * slot_stride] == std::byte(4U));
+    require(writes[0].bytes[3U * slot_stride] == std::byte(6U));
+
+    // Slots given back in any order come out lowest first after recycle.
+    table.give(4U);
+    table.give(0U);
+    table.give(2U);
+    table.recycle();
+    require(table.take(fill(7U), uniforms.size()) == 0U);
+    require(table.take(fill(8U), uniforms.size()) == 2U);
+    require(table.take(fill(9U), uniforms.size()) == 4U);
+    require(table.take(fill(10U), uniforms.size()) == 5U);
+    require(flushed(table).size() == 1U);
+
+    // A full page begins the next one; each page is written by itself.
+    for (std::uint32_t slot = 6U; slot < slots_per_page; ++slot) {
+        require(table.take(fill(11U), uniforms.size()) == slot);
+    }
+    require(table.page_count() == 1U);
+    require(table.take(fill(12U), uniforms.size()) == slots_per_page);
+    require(table.take(fill(13U), uniforms.size()) == slots_per_page + 1U);
+    require(table.page_count() == 2U);
+    require(table.slot_count() == 2U * slots_per_page);
+    require(table.taken() == slots_per_page + 2U);
+    writes = flushed(table);
+    require(writes.size() == 2U);
+    require(writes[0].page == 0U && writes[0].offset == 6U * slot_stride);
+    require(writes[0].size == page_bytes - 6U * slot_stride);
+    require(writes[1].page == 1U && writes[1].offset == 0U);
+    require(writes[1].size == 2U * slot_stride);
+    require(writes[1].bytes[0] == std::byte(12U));
+    require(writes[1].bytes[slot_stride] == std::byte(13U));
+
+    // With every slot given back and recycled the table hands out the
+    // first page again and keeps both pages.
+    for (std::uint32_t slot = 0U; slot < slots_per_page + 2U; ++slot) {
+        table.give(slot);
+    }
+    require(table.taken() == 0U);
+    table.recycle();
+    require(table.take(fill(14U), uniforms.size()) == 0U);
+    require(table.page_count() == 2U);
+
+    table.clear();
+    require(table.page_count() == 0U && table.slot_count() == 0U);
+    require(table.taken() == 0U && !table.pending());
+    require(table.take(fill(15U), uniforms.size()) == 0U);
 }
 
 void kept_span_bundles_follow_the_content_of_their_lists() {
@@ -3099,6 +3243,7 @@ int main() {
     content_hash_reads_words_and_keeps_ranges_apart();
     span_command_lists_hold_one_reference_and_replay_exactly();
     kept_span_bundles_follow_the_content_of_their_lists();
+    mask_uniform_slots_keep_given_slots_until_the_frame_begins();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();

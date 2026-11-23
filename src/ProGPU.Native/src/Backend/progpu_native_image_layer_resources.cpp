@@ -19,6 +19,7 @@
 
 #include <array>
 #include <cstdint>
+#include <new>
 
 using progpu::native::gpu_group_blend_uniforms;
 using progpu::native::gpu_mask_sampling_uniforms;
@@ -436,14 +437,15 @@ WGPUBindGroup create_layer_mask_bind_group(
     WGPUSampler sampler,
     WGPUTextureView view,
     const char* label,
-    WGPUBuffer uniform_buffer) {
+    WGPUBuffer uniform_buffer,
+    std::uint64_t uniform_offset) {
     uniform_buffer = uniform_buffer != nullptr
         ? uniform_buffer
         : engine.layer_mask_uniform_buffer;
     const std::array<WGPUBindGroupEntry, 3U> entries{{
         {nullptr, 0U, nullptr, 0U, 0U, sampler, nullptr},
         {nullptr, 1U, nullptr, 0U, 0U, nullptr, view},
-        {nullptr, 2U, uniform_buffer, 0U,
+        {nullptr, 2U, uniform_buffer, uniform_offset,
             sizeof(gpu_mask_sampling_uniforms), nullptr, nullptr}
     }};
     WGPUBindGroupDescriptor descriptor{};
@@ -452,6 +454,62 @@ WGPUBindGroup create_layer_mask_bind_group(
     descriptor.entryCount = entries.size();
     descriptor.entries = entries.data();
     return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+}
+
+WGPUBindGroup take_layer_mask_slot(
+    progpu_native_engine& engine,
+    const gpu_mask_sampling_uniforms& uniforms,
+    std::uint32_t& slot) {
+    namespace mask_slots = progpu::native::mask_slots;
+    static_assert(sizeof(gpu_mask_sampling_uniforms) <= mask_slots::slot_stride);
+    auto& table = engine.layer_mask_slots;
+    slot = table.take(&uniforms, sizeof(uniforms));
+    if (slot == mask_slots::no_slot) {
+        return nullptr;
+    }
+    const auto give_back = [&]() noexcept {
+        table.give(slot);
+        slot = mask_slots::no_slot;
+        return static_cast<WGPUBindGroup>(nullptr);
+    };
+    try {
+        if (engine.layer_mask_slot_pages.size() < table.page_count()) {
+            engine.layer_mask_slot_pages.resize(table.page_count(), nullptr);
+        }
+        if (engine.layer_mask_slot_bind_groups.size() < table.slot_count()) {
+            engine.layer_mask_slot_bind_groups.resize(
+                table.slot_count(), nullptr);
+        }
+    } catch (const std::bad_alloc&) {
+        return give_back();
+    }
+    WGPUBuffer& page = engine.layer_mask_slot_pages[mask_slots::page_of(slot)];
+    if (page == nullptr) {
+        WGPUBufferDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU retained semantic layer mask uniform page");
+        descriptor.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+        descriptor.size = mask_slots::page_bytes;
+        page = wgpuDeviceCreateBuffer(engine.device, &descriptor);
+        if (page == nullptr) {
+            return give_back();
+        }
+    }
+    WGPUBindGroup& bind_group = engine.layer_mask_slot_bind_groups[slot];
+    if (bind_group == nullptr) {
+        bind_group = create_layer_mask_bind_group(
+            engine,
+            engine.image_linear_sampler,
+            engine.layer_mask_dummy_view,
+            "ProGPU retained semantic analytic mask binding",
+            page,
+            mask_slots::offset_of(slot));
+        if (bind_group == nullptr) {
+            return give_back();
+        }
+    }
+    wgpuBindGroupAddRef(bind_group);
+    return bind_group;
 }
 
 bool create_layer_mask_binding_resources(progpu_native_engine& engine) {
