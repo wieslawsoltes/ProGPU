@@ -24,6 +24,6 @@ bindgen native/progpu_native_font_c.h --allowlist-function 'progpu_native_font_(
 bindgen native/progpu_native_image_c.h --allowlist-function 'progpu_native_image_.*' \
   --allowlist-var 'PROGPU_NATIVE_IMAGE_.*' --no-doc-comments --use-core -o src/image.rs -- -Inative
 # The layout checks bindgen writes hold for the 64-bit targets it ran for; wasm32 has other sizes.
-for file in src/progpu_native.rs src/webgpu.rs; do
+for file in src/progpu_native.rs src/webgpu.rs src/font.rs; do
   perl -pi -e 's/^(#\[allow\(clippy::unnecessary_operation, clippy::identity_op\)\])$/#[cfg(target_pointer_width = "64")]\n$1/' "$file"
 done
