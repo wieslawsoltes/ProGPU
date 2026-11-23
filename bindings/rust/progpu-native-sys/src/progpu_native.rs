@@ -6709,6 +6709,18 @@ unsafe extern "C" {
         delta: *const progpu_native_scene_delta,
         metrics: *mut progpu_native_scene_metrics,
     ) -> progpu_native_status;
+    pub fn progpu_native_engine_set_scene_budget(
+        engine: *mut progpu_native_engine,
+        bytes: u64,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_release_scene(
+        engine: *mut progpu_native_engine,
+        scene_id: u64,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_get_scene_store_metrics(
+        engine: *const progpu_native_engine,
+        metrics: *mut progpu_native_scene_store_metrics,
+    ) -> progpu_native_status;
     pub fn progpu_native_engine_take_upload_counters(
         engine: *mut progpu_native_engine,
         counters: *mut progpu_native_upload_counters,
@@ -6994,6 +7006,14 @@ unsafe extern "C" {
 pub struct progpu_native_scene_delta_range {
     pub offset: u64,
     pub size: u64,
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct progpu_native_scene_store_metrics {
+    pub struct_size: u32,
+    pub kept_scene_count: u32,
+    pub kept_scene_bytes: u64,
+    pub budget_bytes: u64,
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]

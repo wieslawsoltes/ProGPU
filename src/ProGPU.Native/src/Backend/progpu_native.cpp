@@ -510,6 +510,24 @@ progpu_native_status progpu_native_engine_update_scene_delta(
     return progpu::native::execution::update_scene_delta(engine, delta, metrics);
 }
 
+progpu_native_status progpu_native_engine_set_scene_budget(
+    progpu_native_engine* engine,
+    uint64_t bytes) {
+    return progpu::native::execution::set_scene_budget(engine, bytes);
+}
+
+progpu_native_status progpu_native_engine_release_scene(
+    progpu_native_engine* engine,
+    uint64_t scene_id) {
+    return progpu::native::execution::release_scene(engine, scene_id);
+}
+
+progpu_native_status progpu_native_engine_get_scene_store_metrics(
+    const progpu_native_engine* engine,
+    progpu_native_scene_store_metrics* metrics) {
+    return progpu::native::execution::get_scene_store(engine, metrics);
+}
+
 progpu_native_status progpu_native_engine_take_upload_counters(
     progpu_native_engine* engine,
     progpu_native_upload_counters* counters) {

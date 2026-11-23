@@ -108,6 +108,94 @@ progpu_native_status bind_scene_external_images(
 
 namespace {
 
+semantic_retained_scene* parked_scene(progpu_native_engine* engine, std::uint64_t id) noexcept {
+    for (auto& scene : engine->semantic_parked_scenes) {
+        if (scene.id == id) {
+            return &scene;
+        }
+    }
+    return nullptr;
+}
+
+void remove_parked_scene(progpu_native_engine* engine, semantic_retained_scene* scene) noexcept {
+    engine->semantic_parked_scene_bytes -= scene->snapshot.size();
+    if (scene != &engine->semantic_parked_scenes.back()) {
+        std::swap(*scene, engine->semantic_parked_scenes.back());
+    }
+    engine->semantic_parked_scenes.pop_back();
+}
+
+// Drops the scenes used longest ago until the parked scenes fit the budget.
+void trim_parked_scenes(progpu_native_engine* engine) noexcept {
+    while (engine->semantic_parked_scene_bytes > engine->semantic_scene_budget &&
+        !engine->semantic_parked_scenes.empty()) {
+        auto oldest = std::min_element(
+            engine->semantic_parked_scenes.begin(),
+            engine->semantic_parked_scenes.end(),
+            [](const auto& left, const auto& right) { return left.last_use < right.last_use; });
+        remove_parked_scene(engine, &*oldest);
+    }
+}
+
+// Moves the active scene into the parked scenes. May throw std::bad_alloc, before
+// anything has moved.
+void park_active_scene(progpu_native_engine* engine) {
+    if (engine->semantic_scene_budget == 0U || engine->semantic_scene_snapshot.empty()) {
+        return;
+    }
+    engine->semantic_parked_scenes.reserve(engine->semantic_parked_scenes.size() + 1U);
+    semantic_retained_scene scene{};
+    scene.id = engine->semantic_scene_id;
+    scene.generation = engine->semantic_scene_generation;
+    scene.hash = engine->semantic_scene_hash;
+    scene.resource_scope = engine->semantic_resource_scope;
+    scene.last_use = ++engine->semantic_scene_clock;
+    scene.hashes = engine->semantic_hashes;
+    scene.header = engine->semantic_scene_header;
+    scene.metrics = engine->semantic_scene_metrics;
+    scene.snapshot = std::move(engine->semantic_scene_snapshot);
+    engine->semantic_scene_snapshot.clear();
+    engine->semantic_parked_scene_bytes += scene.snapshot.size();
+    engine->semantic_parked_scenes.push_back(std::move(scene));
+    trim_parked_scenes(engine);
+}
+
+// Makes a parked scene the active one, and the active scene a parked one.
+bool activate_parked_scene(progpu_native_engine* engine, std::uint64_t id) noexcept {
+    auto* scene = parked_scene(engine, id);
+    if (scene == nullptr) {
+        return false;
+    }
+    try {
+        auto hashes = scene->hashes;
+        if (scene->resource_scope != engine->semantic_resource_scope) {
+            hashes = progpu::native::semantic::compute_content_hashes(
+                scene->snapshot.data(), scene->header, engine->semantic_resource_scope);
+        }
+        engine->semantic_parked_scene_bytes -= scene->snapshot.size();
+        semantic_retained_scene next = std::move(*scene);
+        if (scene != &engine->semantic_parked_scenes.back()) {
+            *scene = std::move(engine->semantic_parked_scenes.back());
+        }
+        engine->semantic_parked_scenes.pop_back();
+        // The entry just freed is the capacity this needs, so it does not allocate.
+        park_active_scene(engine);
+        if (!engine->device_lost) {
+            engine->release_semantic_render_bundle();
+        }
+        engine->semantic_scene_snapshot = std::move(next.snapshot);
+        engine->semantic_scene_id = next.id;
+        engine->semantic_scene_generation = next.generation;
+        engine->semantic_scene_hash = next.hash;
+        engine->semantic_hashes = hashes;
+        engine->semantic_scene_header = next.header;
+        engine->semantic_scene_metrics = next.metrics;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
 // `owned`, when given, holds the bytes of `stream` and becomes the snapshot.
 progpu_native_status commit_scene(
     progpu_native_engine* engine,
@@ -124,6 +212,28 @@ progpu_native_status commit_scene(
         return engine->fail(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "Native scene updates are owner-thread affine.");
+    }
+    // The stream of a scene another target keeps, unchanged: it only becomes active.
+    if (stream != nullptr && engine->semantic_scene_budget != 0U &&
+        stream_size >= sizeof(progpu_native_scene_header)) {
+        progpu_native_scene_header peeked{};
+        std::memcpy(&peeked, stream, sizeof(peeked));
+        if (peeked.scene_id != engine->semantic_scene_id) {
+            const auto* kept = parked_scene(engine, peeked.scene_id);
+            if (kept != nullptr && kept->snapshot.size() == stream_size &&
+                std::memcmp(kept->snapshot.data(), stream, stream_size) == 0 &&
+                activate_parked_scene(engine, peeked.scene_id)) {
+                if (metrics != nullptr &&
+                    metrics->struct_size >= sizeof(progpu_native_scene_metrics)) {
+                    const std::uint32_t struct_size = metrics->struct_size;
+                    *metrics = engine->semantic_scene_metrics;
+                    metrics->struct_size = struct_size;
+                    metrics->flags |= PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED;
+                }
+                engine->last_error.clear();
+                return PROGPU_NATIVE_STATUS_SUCCESS;
+            }
+        }
     }
     if (stream != nullptr && !engine->semantic_scene_snapshot.empty() &&
         engine->semantic_scene_snapshot.size() == stream_size &&
@@ -150,9 +260,18 @@ progpu_native_status commit_scene(
             "The semantic scene stream failed transactional validation.");
     }
 
-    if (validation.header.scene_id == engine->semantic_scene_id) {
+    // The retained state this generation follows: the active scene, or the one kept
+    // for its target.
+    const bool same_scene = validation.header.scene_id == engine->semantic_scene_id;
+    const auto* kept_scene = same_scene ? nullptr : parked_scene(engine, validation.header.scene_id);
+    if (same_scene || kept_scene != nullptr) {
+        const std::uint64_t base_generation =
+            same_scene ? engine->semantic_scene_generation : kept_scene->generation;
+        const std::byte* base_snapshot =
+            same_scene ? engine->semantic_scene_snapshot.data() : kept_scene->snapshot.data();
+        const auto& base_header = same_scene ? engine->semantic_scene_header : kept_scene->header;
         if (validation.header.generation <
-            engine->semantic_scene_generation) {
+            base_generation) {
             if (metrics != nullptr &&
                 metrics->struct_size >= sizeof(progpu_native_scene_metrics)) {
                 metrics->validation_error =
@@ -163,7 +282,7 @@ progpu_native_status commit_scene(
                 "The semantic scene generation regressed.");
         }
         if (validation.header.generation ==
-            engine->semantic_scene_generation) {
+            base_generation) {
             if (metrics != nullptr && metrics->struct_size >=
                 sizeof(progpu_native_scene_metrics)) {
                 metrics->validation_error =
@@ -176,8 +295,8 @@ progpu_native_status commit_scene(
 
         std::uint32_t error_offset = 0U;
         if (!progpu::native::scene::generations_do_not_regress(
-                engine->semantic_scene_snapshot.data(),
-                engine->semantic_scene_header,
+                base_snapshot,
+                base_header,
                 stream,
                 validation.header,
                 error_offset)) {
@@ -215,6 +334,14 @@ progpu_native_status commit_scene(
         // recreation never clones the stale bundle or any other GPU object.
         if (!engine->device_lost) {
             engine->release_semantic_render_bundle();
+        }
+        if (!same_scene) {
+            // The new generation replaces what was kept for this scene; the scene it
+            // takes the place of stays for its own target.
+            if (auto* replaced = parked_scene(engine, validation.header.scene_id)) {
+                remove_parked_scene(engine, replaced);
+            }
+            park_active_scene(engine);
         }
         engine->semantic_scene_snapshot.swap(next);
         engine->semantic_scene_id = validation.header.scene_id;
@@ -270,6 +397,52 @@ bool delta_ranges_are_valid(
 
 } // namespace
 
+void select_retained_scene(progpu_native_engine* engine, std::uint64_t scene_id) noexcept {
+    if (scene_id != engine->semantic_scene_id) {
+        activate_parked_scene(engine, scene_id);
+    }
+}
+
+progpu_native_status set_scene_budget(progpu_native_engine* engine, std::uint64_t bytes) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (std::this_thread::get_id() != engine->owner_thread) {
+        return engine->fail(PROGPU_NATIVE_STATUS_WRONG_THREAD, "Native scene budgets are owner-thread affine.");
+    }
+    engine->semantic_scene_budget = bytes;
+    trim_parked_scenes(engine);
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status release_scene(progpu_native_engine* engine, std::uint64_t scene_id) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (std::this_thread::get_id() != engine->owner_thread) {
+        return engine->fail(PROGPU_NATIVE_STATUS_WRONG_THREAD, "Native scene releases are owner-thread affine.");
+    }
+    if (auto* scene = parked_scene(engine, scene_id)) {
+        remove_parked_scene(engine, scene);
+    }
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status get_scene_store(
+    const progpu_native_engine* engine,
+    progpu_native_scene_store_metrics* metrics) {
+    if (engine == nullptr || metrics == nullptr ||
+        metrics->struct_size < sizeof(progpu_native_scene_store_metrics)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    metrics->kept_scene_count = static_cast<std::uint32_t>(engine->semantic_parked_scenes.size());
+    metrics->kept_scene_bytes = engine->semantic_parked_scene_bytes;
+    metrics->budget_bytes = engine->semantic_scene_budget;
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status update_scene(
     progpu_native_engine* engine,
     const void* stream,
@@ -294,6 +467,9 @@ progpu_native_status update_scene_delta(
         return engine->fail(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "Native scene updates are owner-thread affine.");
+    }
+    if (engine->semantic_scene_id != delta->scene_id) {
+        activate_parked_scene(engine, delta->scene_id);
     }
     if (engine->semantic_scene_snapshot.empty() ||
         engine->semantic_scene_id != delta->scene_id ||
