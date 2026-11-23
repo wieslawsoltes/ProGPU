@@ -96,6 +96,19 @@ using semantic_span_bundle_cache =
     progpu::native::span_commands::kept_bundle_cache<
         semantic_span_handle_ops>;
 
+// A scene an engine keeps for a target while another scene is the active one.
+struct semantic_retained_scene {
+    std::vector<std::byte> snapshot;
+    std::uint64_t id = 0U;
+    std::uint64_t generation = 0U;
+    std::uint64_t hash = 0U;
+    std::uint64_t resource_scope = 0U;
+    std::uint64_t last_use = 0U;
+    progpu::native::semantic::semantic_content_hashes hashes{};
+    progpu_native_scene_header header{};
+    progpu_native_scene_metrics metrics{};
+};
+
 struct progpu_native_engine {
     progpu::native::diagnostics::compute_trace compute_trace;
     progpu::native::gpu_memory_inventory memory_inventory;
@@ -515,6 +528,13 @@ struct progpu_native_engine {
     float layer_cached_primitive_opacity = 1.0F;
     bool layer_content_cache_valid = false;
     progpu_native_layer_metrics last_layer_metrics{};
+    // The scenes of other targets, kept while the byte budget allows (zero keeps
+    // only the scene above, which is the engine's default). They hold their
+    // stream and what was computed from it; the family pages are shared.
+    std::vector<semantic_retained_scene> semantic_parked_scenes;
+    std::uint64_t semantic_parked_scene_bytes = 0U;
+    std::uint64_t semantic_scene_budget = 0U;
+    std::uint64_t semantic_scene_clock = 0U;
     std::vector<std::byte> semantic_scene_snapshot;
     std::uint64_t semantic_scene_id = 0U;
     std::uint64_t semantic_scene_generation = 0U;

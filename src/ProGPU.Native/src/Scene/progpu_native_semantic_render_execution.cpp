@@ -140,6 +140,7 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The semantic scene frame damage descriptor is invalid.");
     }
+    select_retained_scene(engine, frame->scene_id);
     if (frame->scene_id != engine->semantic_scene_id ||
         frame->generation != engine->semantic_scene_generation ||
         engine->semantic_scene_snapshot.empty()) {

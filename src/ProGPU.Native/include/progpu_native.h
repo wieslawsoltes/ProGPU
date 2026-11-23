@@ -3641,6 +3641,32 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene_delta(
     progpu_native_scene_metrics* metrics);
 
 /*
+ * Scenes kept per target. With a budget above zero an engine keeps the streams of the scenes
+ * it is not rendering, up to that many bytes (the scene used longest ago goes first): a frame
+ * or an update names a scene by its id and finds it, with its generation rules, as its target
+ * left it. An unchanged stream of a kept scene is a snapshot hit. The family buffers, the
+ * pipelines, the glyph atlas and the coverage cache stay shared by the scenes. Zero (the
+ * default) keeps only the scene last updated. A kept scene does not survive device recovery.
+ */
+typedef struct progpu_native_scene_store_metrics {
+    uint32_t struct_size;
+    uint32_t kept_scene_count;
+    uint64_t kept_scene_bytes;
+    uint64_t budget_bytes;
+} progpu_native_scene_store_metrics;
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_set_scene_budget(
+    progpu_native_engine* engine,
+    uint64_t bytes);
+/* Forgets a kept scene; the active scene and an unknown id are left alone. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_release_scene(
+    progpu_native_engine* engine,
+    uint64_t scene_id);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_scene_store_metrics(
+    const progpu_native_engine* engine,
+    progpu_native_scene_store_metrics* metrics);
+
+/*
  * What the page uploads of the frames rendered with
  * PROGPU_NATIVE_SCENE_FRAME_CAPTURE_CPU_STAGES cost since the last call, for
  * measurements. shifted_bytes are the uploaded bytes whose content was found at
