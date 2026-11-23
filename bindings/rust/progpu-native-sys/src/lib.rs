@@ -10,7 +10,9 @@
 //! hands it a Dawn device. The linker keeps what the program reaches.
 #![allow(non_camel_case_types, non_snake_case, non_upper_case_globals, dead_code, clippy::all)]
 
-// The WebGPU implementation of the engine: linked for its C functions.
+// The WebGPU implementation of the engine: linked for its C functions. In the browser it is the
+// WebGPU of the page, through the Emscripten port the final module links.
+#[cfg(not(target_os = "emscripten"))]
 extern crate wgpu_native;
 
 /// The ProGPU native C ABI.
@@ -36,6 +38,13 @@ pub mod image {
     include!("image.rs");
 }
 
+/// The device of the page and the swap chain of a canvas, on wasm32-unknown-emscripten. The final
+/// module links with `--use-port=emdawnwebgpu:cpp_bindings=false`.
+#[cfg(target_os = "emscripten")]
+pub mod browser {
+    include!("browser.rs");
+}
+
 /// The wgpu-native WebGPU C ABI, with the native-object interop of the fork.
 pub mod webgpu {
     include!("webgpu.rs");
@@ -49,6 +58,7 @@ pub const SDK_VERSION: &str = "0.1.0-preview.70";
 ///
 /// # Safety
 /// `name` is a NUL-terminated string.
+#[cfg(not(target_os = "emscripten"))]
 pub unsafe extern "C" fn resolve_webgpu_proc(_context: *mut core::ffi::c_void, name: *const core::ffi::c_char) -> *mut core::ffi::c_void {
     if name.is_null() {
         return core::ptr::null_mut();
@@ -65,6 +75,7 @@ pub unsafe extern "C" fn resolve_webgpu_proc(_context: *mut core::ffi::c_void, n
 
 /// The context of [`resolve_webgpu_proc`] for `progpu_native_dawn_engine_options` (which requires
 /// one that is not null): the resolver uses none, so it is the address of this static.
+#[cfg(not(target_os = "emscripten"))]
 pub fn resolver_context() -> *mut core::ffi::c_void {
     static CONTEXT: u8 = 0;
     &CONTEXT as *const u8 as *mut core::ffi::c_void

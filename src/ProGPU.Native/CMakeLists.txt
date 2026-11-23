@@ -1589,6 +1589,11 @@ if(EMSCRIPTEN)
         --use-port=emdawnwebgpu:cpp_bindings=false)
     progpu_native_enable_warnings(progpu_native_browser_renderer_objects)
 
+    # The renderer as an archive, for a host that links it into a module of its own (the Rust
+    # bindings on wasm32-unknown-emscripten). The host links the port of WebGPU.
+    add_library(progpu_native_browser STATIC
+        $<TARGET_OBJECTS:progpu_native_browser_renderer_objects>)
+
     # Reusable ES-module library: no gallery main, shell, global Module or
     # pre-run side effects. Each async factory owns an independent native host.
     add_executable(progpu_native_browser_module

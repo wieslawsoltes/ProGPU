@@ -27,6 +27,7 @@ pub struct progpu_native_font_style {
     pub slant: u32,
     pub optical_size_fixed: i32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_font_style"]
@@ -58,6 +59,7 @@ pub struct progpu_native_font_face_info {
     pub width: u8,
     pub slant: u8,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_font_face_info"]
@@ -103,6 +105,7 @@ pub struct progpu_native_font_face_metrics {
     pub italic: u32,
     pub outline_format: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_font_face_metrics"]
@@ -138,6 +141,7 @@ pub struct progpu_native_font_glyph_bounds {
     pub x_max: f32,
     pub y_max: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_font_glyph_bounds"]
@@ -302,6 +306,7 @@ pub struct progpu_native_font_outline_growth {
     pub right: f32,
     pub top: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_font_outline_growth"]
