@@ -1,0 +1,15 @@
+[package]
+name = "progpu-native"
+version = "0.1.0-preview.70"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+description = "Safe Rust over the ProGPU native engine: a writer of the retained scene stream."
+repository = "https://github.com/wieslawsoltes/ProGPU"
+include = ["Cargo.toml", "src/**", "README.md", "LICENSE"]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+progpu-native-sys = { version = "=0.1.0-preview.70", path = "../progpu-native-sys" }
