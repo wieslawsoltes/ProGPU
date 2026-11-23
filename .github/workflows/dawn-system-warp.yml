@@ -54,6 +54,9 @@ jobs:
           }
       - name: Build original-header companion and run independent JIT and NativeAOT readbacks
         shell: pwsh
+        env:
+          # The MSVC STL of the runner asks for a newer Clang than the one installed.
+          CXXFLAGS: -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
         run: ./eng/test-dawn-system-warp-windows.ps1 -Rid '${{ matrix.rid }}'
       - name: Preserve exact startup and readback evidence
         if: always()
