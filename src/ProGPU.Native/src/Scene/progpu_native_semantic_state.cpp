@@ -1015,7 +1015,7 @@ scissor semantic_layer_target_cursor::advance(
                 const auto top = edge(static_cast<std::int64_t>(sample_frame.output_y) + presentation.viewport_y);
                 const auto right = edge(static_cast<std::int64_t>(sample_frame.output_x) + sample_frame.output_width + presentation.viewport_x);
                 const auto bottom = edge(static_cast<std::int64_t>(sample_frame.output_y) + sample_frame.output_height + presentation.viewport_y);
-                extents_[materialized_depth_] = intersect_semantic_scissors(current(),
+                extents_[materialized_depth_] = intersect_semantic_scissors(true_current(),
                     {left, top, right - left, bottom - top, right > left && bottom > top});
             } else if (local_cache) {
                 const auto local_extent = [](float value, float dpi_scale) noexcept {
@@ -1039,7 +1039,7 @@ scissor semantic_layer_target_cursor::advance(
                 presentation.viewport_width = width;
                 presentation.viewport_height = height;
             } else {
-                const auto parent = current();
+                const auto parent = true_current();
                 const auto declared = resolve_semantic_layer_scissor(
                     layer,
                     target_domain_extent(frame_width_, parent.x, parent.width),
@@ -1048,6 +1048,8 @@ scissor semantic_layer_target_cursor::advance(
                 extents_[materialized_depth_] =
                     intersect_semantic_scissors(parent, declared);
             }
+            on_page_[materialized_depth_] = plan_ != nullptr && plan_->page_of(layer_ordinal_) != 0U;
+            ++layer_ordinal_;
             ignores_alpha_[materialized_depth_] =
                 (layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
             presentations_[materialized_depth_++] = presentation;
@@ -1061,6 +1063,13 @@ scissor semantic_layer_target_cursor::advance(
 }
 
 scissor semantic_layer_target_cursor::current() const noexcept {
+    if (materialized_depth_ != 0U && on_page_[materialized_depth_ - 1U]) {
+        return {0U, 0U, frame_width_, frame_height_, extents_[materialized_depth_ - 1U].drawable};
+    }
+    return true_current();
+}
+
+scissor semantic_layer_target_cursor::true_current() const noexcept {
     return materialized_depth_ == 0U
         ? frame_extent_
         : extents_[materialized_depth_ - 1U];

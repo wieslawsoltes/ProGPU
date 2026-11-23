@@ -1559,6 +1559,7 @@ pub const PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK: progpu_native_engine_f
 pub const PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING: progpu_native_engine_flag = 8;
 pub const PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING: progpu_native_engine_flag = 16;
 pub const PROGPU_NATIVE_ENGINE_ORDERED_HIT_QUERIES: progpu_native_engine_flag = 32;
+pub const PROGPU_NATIVE_ENGINE_GROUPS_BEFORE_ROOT_PASS: progpu_native_engine_flag = 64;
 pub type progpu_native_engine_flag = ::core::ffi::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

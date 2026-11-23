@@ -837,6 +837,8 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Backend/progpu_native_glyph_outline_registry.hpp
     src/Backend/progpu_native_glyph_raster_identity.hpp
     src/Backend/progpu_native_range_upload.hpp
+    src/Scene/progpu_native_semantic_group_pages.cpp
+    src/Scene/progpu_native_semantic_group_pages.hpp
     src/Scene/progpu_native_semantic_state.cpp
     src/Scene/progpu_native_semantic_state.hpp
     src/Scene/progpu_native_semantic_validation.cpp
