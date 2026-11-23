@@ -5,6 +5,7 @@ mod common;
 
 use progpu_native_sys::progpu::*;
 use progpu_native_sys::scene_builder::*;
+use progpu_native_sys::webgpu::WGPUTextureView;
 use std::ffi::c_void;
 
 const SIZE: u32 = 256;
