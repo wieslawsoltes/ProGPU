@@ -414,7 +414,7 @@ bool semantic_scene_builder_rgb_transport_is_owned_and_atomic() {
         auto corrupt = stream;
         auto bad = descriptor;
         auto bad_tile = original_tiles[1];
-        if (variant == 0U) bad.reserved0 = 1U;
+        if (variant == 0U) bad.coverage_transfer = 1U;
         if (variant == 1U) bad.gamma = std::numeric_limits<float>::quiet_NaN();
         if (variant == 2U) bad.glyph_count = 65537U;
         if (variant == 3U) bad_tile.outline_index = 1U;
