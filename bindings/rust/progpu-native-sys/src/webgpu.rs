@@ -16,6 +16,7 @@ pub struct WGPUStringView {
     pub data: *const ::core::ffi::c_char,
     pub length: usize,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUStringView"][::core::mem::size_of::<WGPUStringView>() - 16usize];
@@ -815,6 +816,7 @@ pub struct WGPUChainedStruct {
     pub next: *mut WGPUChainedStruct,
     pub sType: WGPUSType,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUChainedStruct"][::core::mem::size_of::<WGPUChainedStruct>() - 16usize];
@@ -833,6 +835,7 @@ pub struct WGPUBufferMapCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBufferMapCallbackInfo"]
@@ -859,6 +862,7 @@ pub struct WGPUCompilationInfoCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUCompilationInfoCallbackInfo"]
@@ -885,6 +889,7 @@ pub struct WGPUCreateComputePipelineAsyncCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUCreateComputePipelineAsyncCallbackInfo"]
@@ -911,6 +916,7 @@ pub struct WGPUCreateRenderPipelineAsyncCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUCreateRenderPipelineAsyncCallbackInfo"]
@@ -937,6 +943,7 @@ pub struct WGPUDeviceLostCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUDeviceLostCallbackInfo"]
@@ -963,6 +970,7 @@ pub struct WGPUPopErrorScopeCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUPopErrorScopeCallbackInfo"]
@@ -989,6 +997,7 @@ pub struct WGPUQueueWorkDoneCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUQueueWorkDoneCallbackInfo"]
@@ -1015,6 +1024,7 @@ pub struct WGPURequestAdapterCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURequestAdapterCallbackInfo"]
@@ -1041,6 +1051,7 @@ pub struct WGPURequestDeviceCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURequestDeviceCallbackInfo"]
@@ -1066,6 +1077,7 @@ pub struct WGPUUncapturedErrorCallbackInfo {
     pub userdata1: *mut ::core::ffi::c_void,
     pub userdata2: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUUncapturedErrorCallbackInfo"]
@@ -1096,6 +1108,7 @@ pub struct WGPUAdapterInfo {
     pub subgroupMinSize: u32,
     pub subgroupMaxSize: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUAdapterInfo"][::core::mem::size_of::<WGPUAdapterInfo>() - 96usize];
@@ -1130,6 +1143,7 @@ pub struct WGPUBlendComponent {
     pub srcFactor: WGPUBlendFactor,
     pub dstFactor: WGPUBlendFactor,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBlendComponent"][::core::mem::size_of::<WGPUBlendComponent>() - 12usize];
@@ -1149,6 +1163,7 @@ pub struct WGPUBufferBindingLayout {
     pub hasDynamicOffset: WGPUBool,
     pub minBindingSize: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBufferBindingLayout"]
@@ -1173,6 +1188,7 @@ pub struct WGPUBufferDescriptor {
     pub size: u64,
     pub mappedAtCreation: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBufferDescriptor"][::core::mem::size_of::<WGPUBufferDescriptor>() - 48usize];
@@ -1196,6 +1212,7 @@ pub struct WGPUColor {
     pub b: f64,
     pub a: f64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUColor"][::core::mem::size_of::<WGPUColor>() - 32usize];
@@ -1211,6 +1228,7 @@ pub struct WGPUCommandBufferDescriptor {
     pub nextInChain: *mut WGPUChainedStruct,
     pub label: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUCommandBufferDescriptor"]
@@ -1228,6 +1246,7 @@ pub struct WGPUCommandEncoderDescriptor {
     pub nextInChain: *mut WGPUChainedStruct,
     pub label: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUCommandEncoderDescriptor"]
@@ -1248,6 +1267,7 @@ pub struct WGPUCompatibilityModeLimits {
     pub maxStorageBuffersInFragmentStage: u32,
     pub maxStorageTexturesInFragmentStage: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUCompatibilityModeLimits"]
@@ -1285,6 +1305,7 @@ pub struct WGPUCompilationMessage {
     pub offset: u64,
     pub length: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUCompilationMessage"][::core::mem::size_of::<WGPUCompilationMessage>() - 64usize];
@@ -1312,6 +1333,7 @@ pub struct WGPUConstantEntry {
     pub key: WGPUStringView,
     pub value: f64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUConstantEntry"][::core::mem::size_of::<WGPUConstantEntry>() - 32usize];
@@ -1330,6 +1352,7 @@ pub struct WGPUExtent3D {
     pub height: u32,
     pub depthOrArrayLayers: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUExtent3D"][::core::mem::size_of::<WGPUExtent3D>() - 12usize];
@@ -1346,6 +1369,7 @@ pub struct WGPUExternalTextureBindingEntry {
     pub chain: WGPUChainedStruct,
     pub externalTexture: WGPUExternalTexture,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUExternalTextureBindingEntry"]
@@ -1362,6 +1386,7 @@ const _: () = {
 pub struct WGPUExternalTextureBindingLayout {
     pub chain: WGPUChainedStruct,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUExternalTextureBindingLayout"]
@@ -1376,6 +1401,7 @@ const _: () = {
 pub struct WGPUFuture {
     pub id: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUFuture"][::core::mem::size_of::<WGPUFuture>() - 8usize];
@@ -1388,6 +1414,7 @@ pub struct WGPUInstanceLimits {
     pub nextInChain: *mut WGPUChainedStruct,
     pub timedWaitAnyMaxCount: usize,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUInstanceLimits"][::core::mem::size_of::<WGPUInstanceLimits>() - 16usize];
@@ -1405,6 +1432,7 @@ pub struct WGPUMultisampleState {
     pub mask: u32,
     pub alphaToCoverageEnabled: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUMultisampleState"][::core::mem::size_of::<WGPUMultisampleState>() - 24usize];
@@ -1425,6 +1453,7 @@ pub struct WGPUOrigin3D {
     pub y: u32,
     pub z: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUOrigin3D"][::core::mem::size_of::<WGPUOrigin3D>() - 12usize];
@@ -1441,6 +1470,7 @@ pub struct WGPUPassTimestampWrites {
     pub beginningOfPassWriteIndex: u32,
     pub endOfPassWriteIndex: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUPassTimestampWrites"]
@@ -1465,6 +1495,7 @@ pub struct WGPUPipelineLayoutDescriptor {
     pub bindGroupLayouts: *const WGPUBindGroupLayout,
     pub immediateSize: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUPipelineLayoutDescriptor"]
@@ -1492,6 +1523,7 @@ pub struct WGPUPrimitiveState {
     pub cullMode: WGPUCullMode,
     pub unclippedDepth: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUPrimitiveState"][::core::mem::size_of::<WGPUPrimitiveState>() - 32usize];
@@ -1517,6 +1549,7 @@ pub struct WGPUQuerySetDescriptor {
     pub type_: WGPUQueryType,
     pub count: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUQuerySetDescriptor"][::core::mem::size_of::<WGPUQuerySetDescriptor>() - 32usize];
@@ -1537,6 +1570,7 @@ pub struct WGPUQueueDescriptor {
     pub nextInChain: *mut WGPUChainedStruct,
     pub label: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUQueueDescriptor"][::core::mem::size_of::<WGPUQueueDescriptor>() - 24usize];
@@ -1552,6 +1586,7 @@ pub struct WGPURenderBundleDescriptor {
     pub nextInChain: *mut WGPUChainedStruct,
     pub label: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURenderBundleDescriptor"]
@@ -1575,6 +1610,7 @@ pub struct WGPURenderBundleEncoderDescriptor {
     pub depthReadOnly: WGPUBool,
     pub stencilReadOnly: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURenderBundleEncoderDescriptor"]
@@ -1612,6 +1648,7 @@ pub struct WGPURenderPassDepthStencilAttachment {
     pub stencilClearValue: u32,
     pub stencilReadOnly: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURenderPassDepthStencilAttachment"]
@@ -1647,6 +1684,7 @@ pub struct WGPURenderPassMaxDrawCount {
     pub chain: WGPUChainedStruct,
     pub maxDrawCount: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURenderPassMaxDrawCount"]
@@ -1664,6 +1702,7 @@ pub struct WGPURequestAdapterWebXROptions {
     pub chain: WGPUChainedStruct,
     pub xrCompatible: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURequestAdapterWebXROptions"]
@@ -1681,6 +1720,7 @@ pub struct WGPUSamplerBindingLayout {
     pub nextInChain: *mut WGPUChainedStruct,
     pub type_: WGPUSamplerBindingType,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSamplerBindingLayout"]
@@ -1708,6 +1748,7 @@ pub struct WGPUSamplerDescriptor {
     pub compare: WGPUCompareFunction,
     pub maxAnisotropy: u16,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSamplerDescriptor"][::core::mem::size_of::<WGPUSamplerDescriptor>() - 64usize];
@@ -1745,6 +1786,7 @@ pub struct WGPUShaderSourceSPIRV {
     pub codeSize: u32,
     pub code: *const u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUShaderSourceSPIRV"][::core::mem::size_of::<WGPUShaderSourceSPIRV>() - 32usize];
@@ -1763,6 +1805,7 @@ pub struct WGPUShaderSourceWGSL {
     pub chain: WGPUChainedStruct,
     pub code: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUShaderSourceWGSL"][::core::mem::size_of::<WGPUShaderSourceWGSL>() - 32usize];
@@ -1780,6 +1823,7 @@ pub struct WGPUStencilFaceState {
     pub depthFailOp: WGPUStencilOperation,
     pub passOp: WGPUStencilOperation,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUStencilFaceState"][::core::mem::size_of::<WGPUStencilFaceState>() - 16usize];
@@ -1801,6 +1845,7 @@ pub struct WGPUStorageTextureBindingLayout {
     pub format: WGPUTextureFormat,
     pub viewDimension: WGPUTextureViewDimension,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUStorageTextureBindingLayout"]
@@ -1822,6 +1867,7 @@ pub struct WGPUSupportedFeatures {
     pub featureCount: usize,
     pub features: *const WGPUFeatureName,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSupportedFeatures"][::core::mem::size_of::<WGPUSupportedFeatures>() - 16usize];
@@ -1838,6 +1884,7 @@ pub struct WGPUSupportedInstanceFeatures {
     pub featureCount: usize,
     pub features: *const WGPUInstanceFeatureName,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSupportedInstanceFeatures"]
@@ -1855,6 +1902,7 @@ pub struct WGPUSupportedWGSLLanguageFeatures {
     pub featureCount: usize,
     pub features: *const WGPUWGSLLanguageFeatureName,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSupportedWGSLLanguageFeatures"]
@@ -1878,6 +1926,7 @@ pub struct WGPUSurfaceCapabilities {
     pub alphaModeCount: usize,
     pub alphaModes: *const WGPUCompositeAlphaMode,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceCapabilities"]
@@ -1908,6 +1957,7 @@ pub struct WGPUSurfaceColorManagement {
     pub colorSpace: WGPUPredefinedColorSpace,
     pub toneMappingMode: WGPUToneMappingMode,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceColorManagement"]
@@ -1935,6 +1985,7 @@ pub struct WGPUSurfaceConfiguration {
     pub alphaMode: WGPUCompositeAlphaMode,
     pub presentMode: WGPUPresentMode,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceConfiguration"]
@@ -1968,6 +2019,7 @@ pub struct WGPUSurfaceSourceAndroidNativeWindow {
     pub chain: WGPUChainedStruct,
     pub window: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceSourceAndroidNativeWindow"]
@@ -1985,6 +2037,7 @@ pub struct WGPUSurfaceSourceMetalLayer {
     pub chain: WGPUChainedStruct,
     pub layer: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceSourceMetalLayer"]
@@ -2003,6 +2056,7 @@ pub struct WGPUSurfaceSourceWaylandSurface {
     pub display: *mut ::core::ffi::c_void,
     pub surface: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceSourceWaylandSurface"]
@@ -2023,6 +2077,7 @@ pub struct WGPUSurfaceSourceWindowsHWND {
     pub hinstance: *mut ::core::ffi::c_void,
     pub hwnd: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceSourceWindowsHWND"]
@@ -2043,6 +2098,7 @@ pub struct WGPUSurfaceSourceXCBWindow {
     pub connection: *mut ::core::ffi::c_void,
     pub window: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceSourceXCBWindow"]
@@ -2063,6 +2119,7 @@ pub struct WGPUSurfaceSourceXlibWindow {
     pub display: *mut ::core::ffi::c_void,
     pub window: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceSourceXlibWindow"]
@@ -2083,6 +2140,7 @@ pub struct WGPUSurfaceTexture {
     pub texture: WGPUTexture,
     pub status: WGPUSurfaceGetCurrentTextureStatus,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceTexture"][::core::mem::size_of::<WGPUSurfaceTexture>() - 24usize];
@@ -2101,6 +2159,7 @@ pub struct WGPUTexelCopyBufferLayout {
     pub bytesPerRow: u32,
     pub rowsPerImage: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTexelCopyBufferLayout"]
@@ -2122,6 +2181,7 @@ pub struct WGPUTextureBindingLayout {
     pub viewDimension: WGPUTextureViewDimension,
     pub multisampled: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTextureBindingLayout"]
@@ -2143,6 +2203,7 @@ pub struct WGPUTextureBindingViewDimension {
     pub chain: WGPUChainedStruct,
     pub textureBindingViewDimension: WGPUTextureViewDimension,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTextureBindingViewDimension"]
@@ -2164,6 +2225,7 @@ pub struct WGPUTextureComponentSwizzle {
     pub b: WGPUComponentSwizzle,
     pub a: WGPUComponentSwizzle,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTextureComponentSwizzle"]
@@ -2187,6 +2249,7 @@ pub struct WGPUVertexAttribute {
     pub offset: u64,
     pub shaderLocation: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUVertexAttribute"][::core::mem::size_of::<WGPUVertexAttribute>() - 32usize];
@@ -2211,6 +2274,7 @@ pub struct WGPUBindGroupEntry {
     pub sampler: WGPUSampler,
     pub textureView: WGPUTextureView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBindGroupEntry"][::core::mem::size_of::<WGPUBindGroupEntry>() - 56usize];
@@ -2242,6 +2306,7 @@ pub struct WGPUBindGroupLayoutEntry {
     pub texture: WGPUTextureBindingLayout,
     pub storageTexture: WGPUStorageTextureBindingLayout,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBindGroupLayoutEntry"]
@@ -2271,6 +2336,7 @@ pub struct WGPUBlendState {
     pub color: WGPUBlendComponent,
     pub alpha: WGPUBlendComponent,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBlendState"][::core::mem::size_of::<WGPUBlendState>() - 24usize];
@@ -2287,6 +2353,7 @@ pub struct WGPUCompilationInfo {
     pub messageCount: usize,
     pub messages: *const WGPUCompilationMessage,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUCompilationInfo"][::core::mem::size_of::<WGPUCompilationInfo>() - 24usize];
@@ -2305,6 +2372,7 @@ pub struct WGPUComputePassDescriptor {
     pub label: WGPUStringView,
     pub timestampWrites: *const WGPUPassTimestampWrites,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUComputePassDescriptor"]
@@ -2327,6 +2395,7 @@ pub struct WGPUComputeState {
     pub constantCount: usize,
     pub constants: *const WGPUConstantEntry,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUComputeState"][::core::mem::size_of::<WGPUComputeState>() - 48usize];
@@ -2357,6 +2426,7 @@ pub struct WGPUDepthStencilState {
     pub depthBiasSlopeScale: f32,
     pub depthBiasClamp: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUDepthStencilState"][::core::mem::size_of::<WGPUDepthStencilState>() - 72usize];
@@ -2391,6 +2461,7 @@ pub struct WGPUFutureWaitInfo {
     pub future: WGPUFuture,
     pub completed: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUFutureWaitInfo"][::core::mem::size_of::<WGPUFutureWaitInfo>() - 16usize];
@@ -2408,6 +2479,7 @@ pub struct WGPUInstanceDescriptor {
     pub requiredFeatures: *const WGPUInstanceFeatureName,
     pub requiredLimits: *const WGPUInstanceLimits,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUInstanceDescriptor"][::core::mem::size_of::<WGPUInstanceDescriptor>() - 32usize];
@@ -2459,6 +2531,7 @@ pub struct WGPULimits {
     pub maxComputeWorkgroupsPerDimension: u32,
     pub maxImmediateSize: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPULimits"][::core::mem::size_of::<WGPULimits>() - 152usize];
@@ -2541,6 +2614,7 @@ pub struct WGPURenderPassColorAttachment {
     pub storeOp: WGPUStoreOp,
     pub clearValue: WGPUColor,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURenderPassColorAttachment"]
@@ -2572,6 +2646,7 @@ pub struct WGPURequestAdapterOptions {
     pub backendType: WGPUBackendType,
     pub compatibleSurface: WGPUSurface,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURequestAdapterOptions"]
@@ -2597,6 +2672,7 @@ pub struct WGPUShaderModuleDescriptor {
     pub nextInChain: *mut WGPUChainedStruct,
     pub label: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUShaderModuleDescriptor"]
@@ -2614,6 +2690,7 @@ pub struct WGPUSurfaceDescriptor {
     pub nextInChain: *mut WGPUChainedStruct,
     pub label: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceDescriptor"][::core::mem::size_of::<WGPUSurfaceDescriptor>() - 24usize];
@@ -2630,6 +2707,7 @@ pub struct WGPUTexelCopyBufferInfo {
     pub layout: WGPUTexelCopyBufferLayout,
     pub buffer: WGPUBuffer,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTexelCopyBufferInfo"]
@@ -2649,6 +2727,7 @@ pub struct WGPUTexelCopyTextureInfo {
     pub origin: WGPUOrigin3D,
     pub aspect: WGPUTextureAspect,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTexelCopyTextureInfo"]
@@ -2670,6 +2749,7 @@ pub struct WGPUTextureComponentSwizzleDescriptor {
     pub chain: WGPUChainedStruct,
     pub swizzle: WGPUTextureComponentSwizzle,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTextureComponentSwizzleDescriptor"]
@@ -2695,6 +2775,7 @@ pub struct WGPUTextureDescriptor {
     pub viewFormatCount: usize,
     pub viewFormats: *const WGPUTextureFormat,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTextureDescriptor"][::core::mem::size_of::<WGPUTextureDescriptor>() - 80usize];
@@ -2730,6 +2811,7 @@ pub struct WGPUVertexBufferLayout {
     pub attributeCount: usize,
     pub attributes: *const WGPUVertexAttribute,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUVertexBufferLayout"][::core::mem::size_of::<WGPUVertexBufferLayout>() - 40usize];
@@ -2755,6 +2837,7 @@ pub struct WGPUBindGroupDescriptor {
     pub entryCount: usize,
     pub entries: *const WGPUBindGroupEntry,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBindGroupDescriptor"]
@@ -2780,6 +2863,7 @@ pub struct WGPUBindGroupLayoutDescriptor {
     pub entryCount: usize,
     pub entries: *const WGPUBindGroupLayoutEntry,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBindGroupLayoutDescriptor"]
@@ -2803,6 +2887,7 @@ pub struct WGPUColorTargetState {
     pub blend: *const WGPUBlendState,
     pub writeMask: WGPUColorWriteMask,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUColorTargetState"][::core::mem::size_of::<WGPUColorTargetState>() - 32usize];
@@ -2824,6 +2909,7 @@ pub struct WGPUComputePipelineDescriptor {
     pub layout: WGPUPipelineLayout,
     pub compute: WGPUComputeState,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUComputePipelineDescriptor"]
@@ -2851,6 +2937,7 @@ pub struct WGPUDeviceDescriptor {
     pub deviceLostCallbackInfo: WGPUDeviceLostCallbackInfo,
     pub uncapturedErrorCallbackInfo: WGPUUncapturedErrorCallbackInfo,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUDeviceDescriptor"][::core::mem::size_of::<WGPUDeviceDescriptor>() - 144usize];
@@ -2883,6 +2970,7 @@ pub struct WGPURenderPassDescriptor {
     pub occlusionQuerySet: WGPUQuerySet,
     pub timestampWrites: *const WGPUPassTimestampWrites,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURenderPassDescriptor"]
@@ -2918,6 +3006,7 @@ pub struct WGPUTextureViewDescriptor {
     pub aspect: WGPUTextureAspect,
     pub usage: WGPUTextureUsage,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUTextureViewDescriptor"]
@@ -2956,6 +3045,7 @@ pub struct WGPUVertexState {
     pub bufferCount: usize,
     pub buffers: *const WGPUVertexBufferLayout,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUVertexState"][::core::mem::size_of::<WGPUVertexState>() - 64usize];
@@ -2986,6 +3076,7 @@ pub struct WGPUFragmentState {
     pub targetCount: usize,
     pub targets: *const WGPUColorTargetState,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUFragmentState"][::core::mem::size_of::<WGPUFragmentState>() - 64usize];
@@ -3017,6 +3108,7 @@ pub struct WGPURenderPipelineDescriptor {
     pub multisample: WGPUMultisampleState,
     pub fragment: *const WGPUFragmentState,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURenderPipelineDescriptor"]
@@ -4963,6 +5055,7 @@ pub struct WGPUXlibDisplayHandle {
     pub display: *mut ::core::ffi::c_void,
     pub screen: ::core::ffi::c_int,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUXlibDisplayHandle"][::core::mem::size_of::<WGPUXlibDisplayHandle>() - 16usize];
@@ -4979,6 +5072,7 @@ pub struct WGPUXcbDisplayHandle {
     pub connection: *mut ::core::ffi::c_void,
     pub screen: ::core::ffi::c_int,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUXcbDisplayHandle"][::core::mem::size_of::<WGPUXcbDisplayHandle>() - 16usize];
@@ -4993,6 +5087,7 @@ const _: () = {
 pub struct WGPUWaylandDisplayHandle {
     pub display: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUWaylandDisplayHandle"]
@@ -5015,6 +5110,7 @@ pub union WGPUNativeDisplayHandle__bindgen_ty_1 {
     pub xcb: WGPUXcbDisplayHandle,
     pub wayland: WGPUWaylandDisplayHandle,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUNativeDisplayHandle__bindgen_ty_1"]
@@ -5028,6 +5124,7 @@ const _: () = {
     ["Offset of field: WGPUNativeDisplayHandle__bindgen_ty_1::wayland"]
         [::core::mem::offset_of!(WGPUNativeDisplayHandle__bindgen_ty_1, wayland) - 0usize];
 };
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUNativeDisplayHandle"]
@@ -5055,6 +5152,7 @@ pub struct WGPUInstanceExtras {
     pub budgetForDeviceLoss: *const u8,
     pub displayHandle: WGPUNativeDisplayHandle,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUInstanceExtras"][::core::mem::size_of::<WGPUInstanceExtras>() - 112usize];
@@ -5090,6 +5188,7 @@ pub struct WGPUDeviceExtras {
     pub chain: WGPUChainedStruct,
     pub tracePath: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUDeviceExtras"][::core::mem::size_of::<WGPUDeviceExtras>() - 32usize];
@@ -5108,6 +5207,7 @@ pub struct WGPUNativeLimits {
     pub maxBindingArraySamplerElementsPerShaderStage: u32,
     pub maxMultiviewViewCount: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUNativeLimits"][::core::mem::size_of::<WGPUNativeLimits>() - 32usize];
@@ -5135,6 +5235,7 @@ pub struct WGPUShaderDefine {
     pub name: WGPUStringView,
     pub value: WGPUStringView,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUShaderDefine"][::core::mem::size_of::<WGPUShaderDefine>() - 32usize];
@@ -5153,6 +5254,7 @@ pub struct WGPUShaderSourceGLSL {
     pub defineCount: u32,
     pub defines: *const WGPUShaderDefine,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUShaderSourceGLSL"][::core::mem::size_of::<WGPUShaderSourceGLSL>() - 56usize];
@@ -5175,6 +5277,7 @@ pub struct WGPUShaderModuleDescriptorSpirV {
     pub sourceSize: u32,
     pub source: *const u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUShaderModuleDescriptorSpirV"]
@@ -5196,6 +5299,7 @@ pub struct WGPURegistryReport {
     pub numReleasedFromUser: usize,
     pub elementSize: usize,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPURegistryReport"][::core::mem::size_of::<WGPURegistryReport>() - 32usize];
@@ -5230,6 +5334,7 @@ pub struct WGPUHubReport {
     pub textureViews: WGPURegistryReport,
     pub samplers: WGPURegistryReport,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUHubReport"][::core::mem::size_of::<WGPUHubReport>() - 544usize];
@@ -5275,6 +5380,7 @@ pub struct WGPUGlobalReport {
     pub surfaces: WGPURegistryReport,
     pub hub: WGPUHubReport,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUGlobalReport"][::core::mem::size_of::<WGPUGlobalReport>() - 576usize];
@@ -5290,6 +5396,7 @@ pub struct WGPUInstanceEnumerateAdapterOptions {
     pub nextInChain: *const WGPUChainedStruct,
     pub backends: WGPUInstanceBackend,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUInstanceEnumerateAdapterOptions"]
@@ -5312,6 +5419,7 @@ pub struct WGPUBindGroupEntryExtras {
     pub textureViews: *const WGPUTextureView,
     pub textureViewCount: usize,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBindGroupEntryExtras"]
@@ -5339,6 +5447,7 @@ pub struct WGPUBindGroupLayoutEntryExtras {
     pub chain: WGPUChainedStruct,
     pub count: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUBindGroupLayoutEntryExtras"]
@@ -5357,6 +5466,7 @@ pub struct WGPUQuerySetDescriptorExtras {
     pub pipelineStatistics: *const WGPUPipelineStatisticName,
     pub pipelineStatisticCount: usize,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUQuerySetDescriptorExtras"]
@@ -5376,6 +5486,7 @@ pub struct WGPUSurfaceConfigurationExtras {
     pub chain: WGPUChainedStruct,
     pub desiredMaximumFrameLatency: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceConfigurationExtras"]
@@ -5395,6 +5506,7 @@ pub struct WGPUSurfaceSourceSwapChainPanel {
     pub chain: WGPUChainedStruct,
     pub panelNative: *mut ::core::ffi::c_void,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSurfaceSourceSwapChainPanel"]
@@ -5417,6 +5529,7 @@ pub struct WGPUPrimitiveStateExtras {
     pub polygonMode: WGPUPolygonMode,
     pub conservative: WGPUBool,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUPrimitiveStateExtras"]
@@ -5449,6 +5562,7 @@ pub struct WGPUImageSubresourceRange {
     pub baseArrayLayer: u32,
     pub arrayLayerCount: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUImageSubresourceRange"]
@@ -5489,6 +5603,7 @@ pub struct WGPUSamplerDescriptorExtras {
     pub chain: WGPUChainedStruct,
     pub samplerBorderColor: WGPUSamplerBorderColor,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of WGPUSamplerDescriptorExtras"]

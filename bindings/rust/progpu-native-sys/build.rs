@@ -53,16 +53,25 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PROGPU_NATIVE_CACHE");
     println!("cargo:rerun-if-env-changed=PROGPU_NATIVE_CXX_COMPILER");
 
-    let Some(rid) = runtime_identifier() else {
-        // No desktop engine for this target (the browser builds the engine with Emscripten).
+    let browser = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("emscripten");
+    let rid = runtime_identifier();
+    if rid.is_none() && !browser {
+        // No engine for this target.
         return;
-    };
+    }
     let Some(source) = source_checkout() else {
         panic!(
             "progpu-native-sys {VERSION} builds the engine from the ProGPU sources: build it inside a ProGPU \
              checkout (a git submodule of ProGPU) or set PROGPU_SOURCE_DIR to one"
         );
     };
+    if browser {
+        build_browser(&source).unwrap_or_else(|error| {
+            panic!("ProGPU browser engine from the sources in {}: {error}", source.display())
+        });
+        return;
+    }
+    let rid = rid.expect("a desktop target");
     let root = build_from_source(&source, rid)
         .unwrap_or_else(|error| panic!("ProGPU native engine from the sources in {}: {error}", source.display()));
     let include = root.join("include");
@@ -70,6 +79,84 @@ fn main() {
     println!("cargo:include={}", include.display());
     println!("cargo:sdk={}", sdk.display());
     compile_native_abis(&include, &sdk);
+}
+
+/// The archives of the browser engine, in link order (an archive before those it uses).
+const BROWSER_LIBRARIES: [&str; 7] = [
+    "progpu_native_browser",
+    "progpu_native_scene_builder",
+    "progpu_native_hit_testing",
+    "progpu_native_text",
+    "progpu_native_geometry",
+    "progpu_native_image",
+    "progpu_native_compression",
+];
+
+/// The port of WebGPU the browser engine is compiled and its final module linked with.
+const WEBGPU_PORT: &str = "--use-port=emdawnwebgpu:cpp_bindings=false";
+
+/// Builds the engine for wasm32-unknown-emscripten with the Emscripten of the environment
+/// (`emcmake`) and compiles the C ABIs. A dependency cannot pass link arguments on: the crate of
+/// the final module adds `--use-port=emdawnwebgpu:cpp_bindings=false` to its link.
+fn build_browser(source: &Path) -> Result<(), String> {
+    let native = source.join("src/ProGPU.Native");
+    for watched in [
+        "src/ProGPU.Native/CMakeLists.txt",
+        "src/ProGPU.Native/cmake",
+        "src/ProGPU.Native/include",
+        "src/ProGPU.Native/src",
+        "src/ProGPU.Native/browser/include",
+        "src/ProGPU.Native/Shaders",
+        "src/ProGPU.Backend/Shaders",
+        "src/ProGPU.Scene/Shaders",
+        "src/ProGPU.Compute/Shaders",
+        "src/ProGPU.Vector/Shaders",
+        "src/ProGPU.Text/UnicodeNormalizationData.bin",
+    ] {
+        println!("cargo:rerun-if-changed={}", source.join(watched).display());
+    }
+    let build = PathBuf::from(env::var("OUT_DIR").unwrap()).join("progpu-native-browser");
+    fs::create_dir_all(&build).map_err(|error| error.to_string())?;
+    let mut configure = Command::new("emcmake");
+    configure.arg("cmake").arg("-S").arg(&native).arg("-B").arg(&build);
+    if !build.join("CMakeCache.txt").is_file() && Command::new("ninja").arg("--version").output().is_ok() {
+        configure.args(["-G", "Ninja"]);
+    }
+    configure.args([
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DPROGPU_NATIVE_BUILD_SAMPLE=OFF",
+    ]);
+    run(&mut configure)?;
+    let mut compile = Command::new("cmake");
+    compile.arg("--build").arg(&build);
+    for library in BROWSER_LIBRARIES {
+        compile.args(["--target", library]);
+    }
+    if let Ok(jobs) = env::var("NUM_JOBS") {
+        compile.args(["--parallel", &jobs]);
+    }
+    run(&mut compile)?;
+
+    let include = native.join("include");
+    let mut abis = cc::Build::new();
+    abis.cpp(true).std("c++20").include(&include).include("native").flag(WEBGPU_PORT).flag("-fvisibility=hidden");
+    for name in [
+        "progpu_native_scene_builder_c",
+        "progpu_native_font_c",
+        "progpu_native_image_c",
+        "progpu_native_browser_c",
+    ] {
+        println!("cargo:rerun-if-changed=native/{name}.cpp");
+        println!("cargo:rerun-if-changed=native/{name}.h");
+        abis.file(format!("native/{name}.cpp"));
+    }
+    abis.compile("progpu_native_scene_builder_c");
+    println!("cargo:rustc-link-search=native={}", build.display());
+    for library in BROWSER_LIBRARIES {
+        println!("cargo:rustc-link-lib=static={library}");
+    }
+    Ok(())
 }
 
 /// Compiles the C ABIs of `native/` (over the retained scene builder, the font stack and the image
