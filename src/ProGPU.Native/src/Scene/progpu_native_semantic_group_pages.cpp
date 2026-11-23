@@ -138,7 +138,7 @@ void build_group_page_plan(
                 node.rect = extent;
                 node.parent = open_depth == 0U ? -1 : open[open_depth - 1U];
                 node.pure = plain_layer(layer) && extent.drawable && extent.width != 0U && extent.height != 0U &&
-                    state.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
+                    (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) == 0U;
                 open[open_depth++] = static_cast<std::int32_t>(nodes.size());
                 nodes.push_back(node);
             }
@@ -155,7 +155,7 @@ void build_group_page_plan(
             continue;
         }
         if (open_depth != 0U &&
-            (!plain_command(command.kind) || state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX)) {
+            (!plain_command(command.kind) || (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U)) {
             nodes[static_cast<std::size_t>(open[open_depth - 1U])].pure = false;
         }
     }
