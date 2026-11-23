@@ -6866,6 +6866,7 @@ pub struct progpu_native_upload_counters {
     pub upload_nanoseconds: u64,
     pub shifted_nanoseconds: u64,
     pub counting_nanoseconds: u64,
+    pub counting_in_encode_nanoseconds: u64,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
