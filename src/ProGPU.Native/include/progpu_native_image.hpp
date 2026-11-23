@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace progpu::native::image {
 
@@ -60,6 +61,35 @@ bool try_decode_png_rgba(
     std::span<std::byte> filtered_scratch,
     std::span<std::byte> rgba_output,
     png_decode_requirements& result,
+    image_error* error = nullptr) noexcept;
+
+// How hard the PNG writer looks for matches.
+enum class png_compression : std::uint32_t {
+    none = 0U,
+    fastest,
+    optimal,
+    smallest
+};
+
+// Writes `rgba` (width x height pixels, eight bits a channel, alpha not
+// premultiplied, rows from the top) as a PNG into `output`.
+bool try_encode_png_rgba(
+    std::span<const std::byte> rgba,
+    std::uint32_t width,
+    std::uint32_t height,
+    png_compression level,
+    std::vector<std::byte>& output,
+    image_error* error = nullptr) noexcept;
+
+// Writes the colours of `rgba` as a baseline JPEG of `quality` (1 to 100, on the
+// scale of the IJG tables) into `output`. Alpha is ignored. Chroma is subsampled
+// 4:2:0 below a quality of 90.
+bool try_encode_jpeg_rgba(
+    std::span<const std::byte> rgba,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t quality,
+    std::vector<std::byte>& output,
     image_error* error = nullptr) noexcept;
 
 // The format of a file by its signature; unknown for anything else.

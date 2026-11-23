@@ -79,6 +79,40 @@ int progpu_native_image_decode_rgba(
     size_t rgba_size,
     uint32_t* error);
 
+/* The compression levels of progpu_native_image_encode_png. */
+#define PROGPU_NATIVE_IMAGE_PNG_NO_COMPRESSION 0u
+#define PROGPU_NATIVE_IMAGE_PNG_FASTEST 1u
+#define PROGPU_NATIVE_IMAGE_PNG_OPTIMAL 2u
+#define PROGPU_NATIVE_IMAGE_PNG_SMALLEST 3u
+
+/* Writes `rgba` (`width` x `height` pixels, eight bits a channel, alpha not premultiplied, rows
+ * from the top without padding) as a PNG. On success `*output` is a buffer of `*output_size`
+ * bytes, released with progpu_native_image_free. */
+int progpu_native_image_encode_png(
+    const uint8_t* rgba,
+    size_t rgba_size,
+    uint32_t width,
+    uint32_t height,
+    uint32_t level,
+    uint8_t** output,
+    size_t* output_size,
+    uint32_t* error);
+
+/* Writes the colours of `rgba` as a baseline JPEG of `quality` (1 to 100; alpha is ignored; chroma
+ * is subsampled 4:2:0 below 90). The output is as for progpu_native_image_encode_png. */
+int progpu_native_image_encode_jpeg(
+    const uint8_t* rgba,
+    size_t rgba_size,
+    uint32_t width,
+    uint32_t height,
+    uint32_t quality,
+    uint8_t** output,
+    size_t* output_size,
+    uint32_t* error);
+
+/* Releases a buffer of an encoder. A null pointer is ignored. */
+void progpu_native_image_free(uint8_t* output);
+
 #ifdef __cplusplus
 }
 #endif

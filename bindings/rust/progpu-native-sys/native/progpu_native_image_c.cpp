@@ -4,6 +4,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <span>
 #include <vector>
 
@@ -21,6 +23,26 @@ void set_error(std::uint32_t* error, std::uint32_t value) noexcept {
 
 std::span<const std::byte> input_of(const std::uint8_t* data, std::size_t size) noexcept {
     return {reinterpret_cast<const std::byte*>(data), size};
+}
+
+// Hands the bytes of an encoder to the caller.
+int hand_out(
+    const std::vector<std::byte>& bytes,
+    std::uint8_t** output,
+    std::size_t* output_size,
+    std::uint32_t* error) noexcept {
+    auto* buffer = static_cast<std::uint8_t*>(std::malloc(bytes.empty() ? 1U : bytes.size()));
+    if (buffer == nullptr) {
+        set_error(error, PROGPU_NATIVE_IMAGE_ERROR_OUT_OF_MEMORY);
+        return 0;
+    }
+    if (!bytes.empty()) {
+        std::memcpy(buffer, bytes.data(), bytes.size());
+    }
+    *output = buffer;
+    *output_size = bytes.size();
+    set_error(error, PROGPU_NATIVE_IMAGE_ERROR_NONE);
+    return 1;
 }
 
 } // namespace
@@ -145,6 +167,66 @@ int progpu_native_image_decode_rgba(
     }
     set_error(error, PROGPU_NATIVE_IMAGE_ERROR_NONE);
     return 1;
+}
+
+int progpu_native_image_encode_png(
+    const uint8_t* rgba,
+    size_t rgba_size,
+    uint32_t width,
+    uint32_t height,
+    uint32_t level,
+    uint8_t** output,
+    size_t* output_size,
+    uint32_t* error) {
+    if (rgba == nullptr || output == nullptr || output_size == nullptr ||
+        level > PROGPU_NATIVE_IMAGE_PNG_SMALLEST) {
+        set_error(error, PROGPU_NATIVE_IMAGE_ERROR_INVALID_ARGUMENT);
+        return 0;
+    }
+    try {
+        std::vector<std::byte> bytes;
+        image::image_error failure = image::image_error::none;
+        if (!image::try_encode_png_rgba(input_of(rgba, rgba_size), width, height,
+                static_cast<image::png_compression>(level), bytes, &failure)) {
+            set_error(error, static_cast<std::uint32_t>(failure));
+            return 0;
+        }
+        return hand_out(bytes, output, output_size, error);
+    } catch (...) {
+        set_error(error, PROGPU_NATIVE_IMAGE_ERROR_OUT_OF_MEMORY);
+        return 0;
+    }
+}
+
+int progpu_native_image_encode_jpeg(
+    const uint8_t* rgba,
+    size_t rgba_size,
+    uint32_t width,
+    uint32_t height,
+    uint32_t quality,
+    uint8_t** output,
+    size_t* output_size,
+    uint32_t* error) {
+    if (rgba == nullptr || output == nullptr || output_size == nullptr) {
+        set_error(error, PROGPU_NATIVE_IMAGE_ERROR_INVALID_ARGUMENT);
+        return 0;
+    }
+    try {
+        std::vector<std::byte> bytes;
+        image::image_error failure = image::image_error::none;
+        if (!image::try_encode_jpeg_rgba(input_of(rgba, rgba_size), width, height, quality, bytes, &failure)) {
+            set_error(error, static_cast<std::uint32_t>(failure));
+            return 0;
+        }
+        return hand_out(bytes, output, output_size, error);
+    } catch (...) {
+        set_error(error, PROGPU_NATIVE_IMAGE_ERROR_OUT_OF_MEMORY);
+        return 0;
+    }
+}
+
+void progpu_native_image_free(uint8_t* output) {
+    std::free(output);
 }
 
 } // extern "C"
