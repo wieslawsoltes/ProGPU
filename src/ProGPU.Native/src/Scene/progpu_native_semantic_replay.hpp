@@ -5,6 +5,7 @@
 #include "progpu_native.h"
 #include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_gpu_records.hpp"
+#include "progpu_native_range_upload.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
@@ -30,6 +31,9 @@ struct semantic_analytic_page {
     std::uint32_t target_height = 0U;
     bool cache_valid = false;
     std::vector<semantic_analytic_draw> draws;
+    // What the two buffers hold, so that a new page writes what changed.
+    progpu::native::range_upload_mirror vertex_mirror;
+    progpu::native::range_upload_mirror index_mirror;
 };
 
 struct semantic_source_path {

@@ -1073,6 +1073,8 @@ struct progpu_native_engine {
             wgpuBufferRelease(page.vertex_buffer);
             page.vertex_buffer = nullptr;
         }
+        page.vertex_mirror.invalidate();
+        page.index_mirror.invalidate();
         page.index_buffer_size = 0U;
         page.vertex_buffer_size = 0U;
         page.index_bytes = 0U;
@@ -1753,12 +1755,14 @@ struct progpu_native_engine {
             }
             page.vertex_buffer = replacement_vertex;
             page.vertex_buffer_size = vertex_capacity;
+            page.vertex_mirror.invalidate();
         }
         if (replacement_index != nullptr) {
             if (page.index_buffer != nullptr) {
                 wgpuBufferDestroy(page.index_buffer);
                 wgpuBufferRelease(page.index_buffer);
             }
+            page.index_mirror.invalidate();
             page.index_buffer = replacement_index;
             page.index_buffer_size = index_capacity;
         }
