@@ -3612,6 +3612,34 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene(
     size_t stream_size,
     progpu_native_scene_metrics* metrics);
 /*
+ * The next generation of the retained scene as the bytes that differ from it.
+ * ranges are ascending and do not overlap; bytes holds their new content in
+ * that order. Every byte past the end of the retained stream is in a range.
+ * The patched stream goes through the validation of update_scene: a delta
+ * that does not follow the retained scene, or a patched stream that does not
+ * validate, leaves the retained scene as it was.
+ */
+typedef struct progpu_native_scene_delta_range {
+    uint64_t offset;
+    uint64_t size;
+} progpu_native_scene_delta_range;
+
+typedef struct progpu_native_scene_delta {
+    uint32_t struct_size;
+    uint32_t range_count;
+    uint64_t scene_id;
+    uint64_t base_generation;
+    uint64_t stream_size;
+    const progpu_native_scene_delta_range* ranges;
+    const void* bytes;
+    uint64_t byte_count;
+} progpu_native_scene_delta;
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene_delta(
+    progpu_native_engine* engine,
+    const progpu_native_scene_delta* delta,
+    progpu_native_scene_metrics* metrics);
+/*
  * Registers glyph outlines by key, for glyph resources that name outlines
  * instead of carrying them. The engine copies the segments. A key registered
  * before with the same bounds and segments is left as it is; with other

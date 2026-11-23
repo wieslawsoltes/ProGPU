@@ -6565,6 +6565,11 @@ unsafe extern "C" {
         stream_size: usize,
         metrics: *mut progpu_native_scene_metrics,
     ) -> progpu_native_status;
+    pub fn progpu_native_engine_update_scene_delta(
+        engine: *mut progpu_native_engine,
+        delta: *const progpu_native_scene_delta,
+        metrics: *mut progpu_native_scene_metrics,
+    ) -> progpu_native_status;
     pub fn progpu_native_engine_register_glyph_outlines(
         engine: *mut progpu_native_engine,
         outlines: *const progpu_native_registered_glyph_outline,
@@ -6840,4 +6845,22 @@ unsafe extern "C" {
         options: *const progpu_native_dawn_engine_options,
         replacement: *mut *mut progpu_native_engine,
     ) -> progpu_native_status;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct progpu_native_scene_delta_range {
+    pub offset: u64,
+    pub size: u64,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct progpu_native_scene_delta {
+    pub struct_size: u32,
+    pub range_count: u32,
+    pub scene_id: u64,
+    pub base_generation: u64,
+    pub stream_size: u64,
+    pub ranges: *const progpu_native_scene_delta_range,
+    pub bytes: *const ::core::ffi::c_void,
+    pub byte_count: u64,
 }

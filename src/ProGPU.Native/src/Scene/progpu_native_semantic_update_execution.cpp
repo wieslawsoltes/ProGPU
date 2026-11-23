@@ -1,5 +1,13 @@
 #include "progpu_native_frame_execution_common.hpp"
 
+#include <algorithm>
+#include <cstring>
+#include <limits>
+#include <new>
+#include <thread>
+#include <utility>
+#include <vector>
+
 namespace progpu::native::execution {
 
 progpu_native_status bind_scene_external_images(
@@ -98,11 +106,15 @@ progpu_native_status bind_scene_external_images(
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
-progpu_native_status update_scene(
+namespace {
+
+// `owned`, when given, holds the bytes of `stream` and becomes the snapshot.
+progpu_native_status commit_scene(
     progpu_native_engine* engine,
     const void* stream,
     size_t stream_size,
-    progpu_native_scene_metrics* metrics) {
+    progpu_native_scene_metrics* metrics,
+    std::vector<std::byte>* owned) {
     if (engine == nullptr) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
@@ -182,8 +194,13 @@ progpu_native_status update_scene(
     }
 
     try {
-        std::vector<std::byte> next(stream_size);
-        std::memcpy(next.data(), stream, stream_size);
+        std::vector<std::byte> next;
+        if (owned != nullptr) {
+            next = std::move(*owned);
+        } else {
+            next.resize(stream_size);
+            std::memcpy(next.data(), stream, stream_size);
+        }
         const std::uint64_t next_hash = append_content_hash64(
             14695981039346656037ULL,
             stream,
@@ -222,6 +239,99 @@ progpu_native_status update_scene(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The immutable semantic scene snapshot could not be committed.");
     }
+}
+
+// Whether the ranges of `delta` are ascending, apart, inside the new stream, hold
+// exactly its bytes, and cover everything past the end of the retained stream.
+bool delta_ranges_are_valid(
+    const progpu_native_scene_delta& delta,
+    std::uint64_t retained_size) noexcept {
+    std::uint64_t end = 0U;
+    std::uint64_t total = 0U;
+    std::uint64_t covered_to = retained_size;
+    for (std::uint32_t index = 0U; index < delta.range_count; ++index) {
+        const auto& range = delta.ranges[index];
+        if (range.size == 0U || range.offset < end ||
+            range.offset > delta.stream_size ||
+            range.size > delta.stream_size - range.offset) {
+            return false;
+        }
+        end = range.offset + range.size;
+        total += range.size;
+        if (end > covered_to) {
+            if (range.offset > covered_to) {
+                return false;
+            }
+            covered_to = end;
+        }
+    }
+    return total == delta.byte_count && covered_to >= delta.stream_size;
+}
+
+} // namespace
+
+progpu_native_status update_scene(
+    progpu_native_engine* engine,
+    const void* stream,
+    size_t stream_size,
+    progpu_native_scene_metrics* metrics) {
+    return commit_scene(engine, stream, stream_size, metrics, nullptr);
+}
+
+progpu_native_status update_scene_delta(
+    progpu_native_engine* engine,
+    const progpu_native_scene_delta* delta,
+    progpu_native_scene_metrics* metrics) {
+    if (engine == nullptr || delta == nullptr ||
+        delta->struct_size < sizeof(progpu_native_scene_delta) ||
+        (delta->range_count != 0U && delta->ranges == nullptr) ||
+        (delta->byte_count != 0U && delta->bytes == nullptr) ||
+        delta->stream_size == 0U ||
+        delta->stream_size > std::numeric_limits<std::size_t>::max()) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (std::this_thread::get_id() != engine->owner_thread) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Native scene updates are owner-thread affine.");
+    }
+    if (engine->semantic_scene_snapshot.empty() ||
+        engine->semantic_scene_id != delta->scene_id ||
+        engine->semantic_scene_generation != delta->base_generation) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The scene delta does not follow the retained scene.");
+    }
+    if (!delta_ranges_are_valid(*delta, engine->semantic_scene_snapshot.size())) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The ranges of the scene delta are not valid.");
+    }
+    std::vector<std::byte> next;
+    try {
+        const auto size = static_cast<std::size_t>(delta->stream_size);
+        next.resize(size);
+        std::memcpy(
+            next.data(),
+            engine->semantic_scene_snapshot.data(),
+            std::min(size, engine->semantic_scene_snapshot.size()));
+    } catch (const std::bad_alloc&) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The patched semantic scene could not be allocated.");
+    }
+    const auto* source = static_cast<const std::byte*>(delta->bytes);
+    for (std::uint32_t index = 0U; index < delta->range_count; ++index) {
+        const auto& range = delta->ranges[index];
+        std::memcpy(
+            next.data() + static_cast<std::size_t>(range.offset),
+            source,
+            static_cast<std::size_t>(range.size));
+        source += range.size;
+    }
+    const void* patched = next.data();
+    const std::size_t patched_size = next.size();
+    return commit_scene(engine, patched, patched_size, metrics, &next);
 }
 
 } // namespace progpu::native::execution
