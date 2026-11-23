@@ -1,7 +1,7 @@
 /*
  * A C ABI over the engine's own image module (progpu_native_image.hpp), for hosts that cannot
- * call C++: reading the size of a PNG and decoding it to RGBA. No platform image API is involved:
- * the PNG reader and its inflate are those of the engine.
+ * call C++: reading the size of a PNG, JPEG, GIF or BMP file and decoding it to RGBA. No platform
+ * image API is involved: the readers and the inflate are those of the engine.
  *
  * A function returns nonzero on success. On failure the error, when a place for it is given, is
  * one of PROGPU_NATIVE_IMAGE_ERROR_*. The functions keep no state and may be called from any
@@ -28,6 +28,13 @@ extern "C" {
 #define PROGPU_NATIVE_IMAGE_ERROR_INVALID_COMPRESSED_DATA 7u
 #define PROGPU_NATIVE_IMAGE_ERROR_OUT_OF_MEMORY 8u
 
+/* The file formats, told from the first bytes of a file. */
+#define PROGPU_NATIVE_IMAGE_FORMAT_UNKNOWN 0u
+#define PROGPU_NATIVE_IMAGE_FORMAT_PNG 1u
+#define PROGPU_NATIVE_IMAGE_FORMAT_JPEG 2u
+#define PROGPU_NATIVE_IMAGE_FORMAT_GIF 3u
+#define PROGPU_NATIVE_IMAGE_FORMAT_BMP 4u
+
 /* The size of a PNG: its width and height in pixels and the bytes its RGBA pixels take (four a
  * pixel, rows without padding). Reads the header and the layout of the chunks; decodes nothing. */
 int progpu_native_image_png_read_size(
@@ -44,6 +51,28 @@ int progpu_native_image_png_read_size(
  * PNG is read; samples of other depths are scaled to eight bits with rounding. Gamma and colour
  * profile chunks are not applied: the samples are handed out as the file has them. */
 int progpu_native_image_png_decode_rgba(
+    const uint8_t* data,
+    size_t size,
+    uint8_t* rgba,
+    size_t rgba_size,
+    uint32_t* error);
+
+/* The format and size of a PNG, JPEG, GIF or BMP file, as progpu_native_image_png_read_size for a
+ * PNG. Reads the headers; decodes nothing. */
+int progpu_native_image_read_size(
+    const uint8_t* data,
+    size_t size,
+    uint32_t* format,
+    uint32_t* width,
+    uint32_t* height,
+    size_t* rgba_size,
+    uint32_t* error);
+
+/* Decodes a PNG, JPEG, GIF or BMP file into `rgba`, as progpu_native_image_png_decode_rgba for a
+ * PNG. JPEG: baseline, extended sequential and progressive Huffman at eight bits, in grayscale,
+ * YCbCr, RGB, CMYK and YCCK; the Exif orientation is not applied. GIF: the first frame on a
+ * transparent canvas of the logical screen. BMP: 1 to 32 bits, bit fields and RLE. */
+int progpu_native_image_decode_rgba(
     const uint8_t* data,
     size_t size,
     uint8_t* rgba,

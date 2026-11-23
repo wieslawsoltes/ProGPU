@@ -91,4 +91,60 @@ int progpu_native_image_png_decode_rgba(
     return 1;
 }
 
+int progpu_native_image_read_size(
+    const uint8_t* data,
+    size_t size,
+    uint32_t* format,
+    uint32_t* width,
+    uint32_t* height,
+    size_t* rgba_size,
+    uint32_t* error) {
+    if (data == nullptr || size == 0U || format == nullptr || width == nullptr ||
+        height == nullptr || rgba_size == nullptr) {
+        set_error(error, PROGPU_NATIVE_IMAGE_ERROR_INVALID_ARGUMENT);
+        return 0;
+    }
+    const auto input = input_of(data, size);
+    if (image::detect_image_format(input) == image::image_format::png) {
+        *format = PROGPU_NATIVE_IMAGE_FORMAT_PNG;
+        return progpu_native_image_png_read_size(data, size, width, height, rgba_size, error);
+    }
+    image::raster_image_size raster{};
+    image::image_error failure = image::image_error::none;
+    if (!image::try_get_raster_image_size(input, raster, &failure)) {
+        set_error(error, static_cast<std::uint32_t>(failure));
+        return 0;
+    }
+    *format = static_cast<std::uint32_t>(raster.format);
+    *width = raster.width;
+    *height = raster.height;
+    *rgba_size = raster.rgba_bytes;
+    set_error(error, PROGPU_NATIVE_IMAGE_ERROR_NONE);
+    return 1;
+}
+
+int progpu_native_image_decode_rgba(
+    const uint8_t* data,
+    size_t size,
+    uint8_t* rgba,
+    size_t rgba_size,
+    uint32_t* error) {
+    if (data == nullptr || size == 0U || rgba == nullptr) {
+        set_error(error, PROGPU_NATIVE_IMAGE_ERROR_INVALID_ARGUMENT);
+        return 0;
+    }
+    const auto input = input_of(data, size);
+    if (image::detect_image_format(input) == image::image_format::png) {
+        return progpu_native_image_png_decode_rgba(data, size, rgba, rgba_size, error);
+    }
+    image::image_error failure = image::image_error::none;
+    if (!image::try_decode_raster_image_rgba(
+            input, {reinterpret_cast<std::byte*>(rgba), rgba_size}, &failure)) {
+        set_error(error, static_cast<std::uint32_t>(failure));
+        return 0;
+    }
+    set_error(error, PROGPU_NATIVE_IMAGE_ERROR_NONE);
+    return 1;
+}
+
 } // extern "C"

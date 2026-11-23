@@ -944,6 +944,11 @@ add_library(progpu_native_image STATIC
     src/Image/progpu_native_png_layout.cpp
     src/Image/progpu_native_png_pixels.cpp
     src/Image/progpu_native_png_internal.hpp
+    src/Image/progpu_native_raster_internal.hpp
+    src/Image/progpu_native_raster.cpp
+    src/Image/progpu_native_bmp.cpp
+    src/Image/progpu_native_gif.cpp
+    src/Image/progpu_native_jpeg.cpp
     include/progpu_native_image.hpp)
 target_compile_features(progpu_native_image PUBLIC cxx_std_20)
 target_include_directories(progpu_native_image
