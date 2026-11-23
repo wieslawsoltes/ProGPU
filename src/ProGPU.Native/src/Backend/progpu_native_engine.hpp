@@ -215,6 +215,8 @@ struct progpu_native_engine {
     std::uint32_t glyph_atlas_generation = 0U;
     std::uint32_t glyph_atlas_growth_count = 0U;
     WGPUBuffer text_vertex_buffer = nullptr;
+    // What the buffer holds, so that new instances write what changed.
+    progpu::native::range_upload_mirror text_vertex_mirror;
     std::uint64_t text_vertex_buffer_size = 0U;
     WGPUBuffer vertex_buffer = nullptr;
     WGPUBuffer index_buffer = nullptr;
@@ -2488,6 +2490,7 @@ struct progpu_native_engine {
             wgpuBufferRelease(text_vertex_buffer);
         }
         text_vertex_buffer = replacement;
+        text_vertex_mirror.invalidate();
         text_vertex_buffer_size = new_size;
         glyph_gpu_cache_valid = false;
         return true;

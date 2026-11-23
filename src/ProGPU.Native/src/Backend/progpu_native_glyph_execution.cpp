@@ -1594,6 +1594,7 @@ progpu_native_status render_glyphs(
     }
     bool uploaded_uniforms = false;
     bool canonical_glyph_coverage_frame = false;
+    std::uint64_t instance_upload_bytes = 0U;
     if (instance_bytes != 0U) {
         gpu_uniforms frame_uniforms = create_uniforms(
             frame->width,
@@ -1614,12 +1615,12 @@ progpu_native_status render_glyphs(
             engine->cached_analytic_uniforms,
             engine->analytic_uniform_cache_valid);
         if (upload_instances) {
-            wgpuQueueWriteBuffer(
-                engine->queue,
-                engine->text_vertex_buffer,
-                0U,
-                engine->glyph_instances.data(),
-                instance_bytes);
+            instance_upload_bytes = engine->text_vertex_mirror.upload(
+                std::span(reinterpret_cast<const std::byte*>(engine->glyph_instances.data()),
+                    static_cast<std::size_t>(instance_bytes)),
+                [engine](std::size_t offset, const std::byte* data, std::size_t size) noexcept {
+                    wgpuQueueWriteBuffer(engine->queue, engine->text_vertex_buffer, offset, data, size);
+                });
             engine->glyph_gpu_cache_valid = retain_compiled_payload;
         }
     }
@@ -2129,9 +2130,7 @@ progpu_native_status render_glyphs(
         metrics->atlas_height = engine->glyph_atlas_size;
         metrics->atlas_generation = engine->glyph_atlas_generation;
         metrics->atlas_growth_count = engine->glyph_atlas_growth_count;
-        metrics->instance_upload_bytes = upload_instances
-            ? instance_bytes
-            : 0U;
+        metrics->instance_upload_bytes = instance_upload_bytes;
         metrics->outline_upload_bytes = outline_upload_bytes;
         metrics->coverage_staging_bytes = glyph_raster_shader_fallback
             ? 0U
