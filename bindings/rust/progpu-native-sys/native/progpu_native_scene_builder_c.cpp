@@ -188,6 +188,18 @@ int progpu_native_scene_builder_draw_paths(progpu_native_scene_builder* builder,
         span_of(brush_indices, brush_index_count), bounds, state_resource_index));
 }
 
+int progpu_native_scene_builder_last_path_resource(const progpu_native_scene_builder* builder,
+    uint32_t* resource_index) {
+    return result(resource_index != nullptr && builder->builder.last_path_resource(*resource_index));
+}
+
+int progpu_native_scene_builder_draw_path_resource(progpu_native_scene_builder* builder, uint32_t resource_index,
+    const uint32_t* brush_indices, size_t brush_index_count, progpu_native_image_rect bounds,
+    uint32_t state_resource_index) {
+    return result(builder->builder.draw_path_resource(resource_index, span_of(brush_indices, brush_index_count), bounds,
+        state_resource_index));
+}
+
 int progpu_native_scene_builder_draw_image(progpu_native_scene_builder* builder, uint32_t image_resource_index,
     const progpu_native_scene_image_draw* image, progpu_native_image_rect bounds, uint32_t state_resource_index,
     const progpu_native_scene_image_sampling_options* sampling_options) {
