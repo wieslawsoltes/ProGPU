@@ -102,6 +102,7 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "Native scene CPU stage capture requires complete frame metrics.");
     }
+    engine->counted_uploads = capture_cpu_stages ? &engine->upload_counters : nullptr;
     progpu_native_scene_presentation presentation{};
     if (!semantic::try_resolve_scene_presentation(*frame, presentation)) {
         return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
@@ -2699,10 +2700,13 @@ progpu_native_status render_scene(
         };
         semantic_analytic_vertex_upload_bytes = semantic_analytic_page.vertex_mirror.upload(
             std::as_bytes(std::span(engine->vertices)),
-            write_to(semantic_analytic_page.vertex_buffer));
+            write_to(semantic_analytic_page.vertex_buffer),
+            engine->counted_uploads);
         semantic_analytic_index_upload_bytes = semantic_analytic_page.index_mirror.upload(
             std::as_bytes(std::span(engine->indices)),
-            write_to(semantic_analytic_page.index_buffer));
+            write_to(semantic_analytic_page.index_buffer),
+            engine->counted_uploads,
+            progpu::native::range_upload_content::indices);
         semantic_analytic_page.draws = std::move(compiled_draws);
         semantic_analytic_page.vertex_bytes = compiled_vertex_bytes;
         semantic_analytic_page.index_bytes = compiled_index_bytes;
@@ -3923,7 +3927,8 @@ progpu_native_status render_scene(
             std::as_bytes(std::span(vertices)),
             [engine, image_vertex_target](std::size_t offset, const std::byte* data, std::size_t size) noexcept {
                 wgpuQueueWriteBuffer(engine->queue, image_vertex_target, offset, data, size);
-            });
+            },
+            engine->counted_uploads);
         engine->release_semantic_image_page();
         semantic_image_page.vertex_buffer = image_vertex_target;
         semantic_image_page.vertex_buffer_capacity = image_vertex_capacity;

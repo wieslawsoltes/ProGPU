@@ -734,11 +734,14 @@ progpu_native_status render_paths(
             path_vertex_upload_bytes = engine->path_vertex_mirror.upload(
                 std::span(reinterpret_cast<const std::byte*>(engine->path_vertices.data()),
                     static_cast<std::size_t>(vertex_bytes)),
-                write_to(engine->path_vertex_buffer));
+                write_to(engine->path_vertex_buffer),
+                engine->counted_uploads);
             path_index_upload_bytes = engine->path_index_mirror.upload(
                 std::span(reinterpret_cast<const std::byte*>(engine->path_indices.data()),
                     static_cast<std::size_t>(index_bytes)),
-                write_to(engine->path_index_buffer));
+                write_to(engine->path_index_buffer),
+                engine->counted_uploads,
+                progpu::native::range_upload_content::indices);
             engine->path_gpu_cache_valid = retain_compiled_payload;
             engine->geometry_gpu_cache_valid = false;
         }

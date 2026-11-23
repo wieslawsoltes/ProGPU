@@ -214,6 +214,10 @@ struct progpu_native_engine {
     std::uint64_t color_glyph_atlas_owner_hash = 0U;
     std::uint32_t glyph_atlas_generation = 0U;
     std::uint32_t glyph_atlas_growth_count = 0U;
+    // What the uploads of frames that capture their stages cost. Null on every other
+    // frame, which then pays nothing for it.
+    progpu::native::range_upload_counters upload_counters;
+    progpu::native::range_upload_counters* counted_uploads = nullptr;
     WGPUBuffer text_vertex_buffer = nullptr;
     // What the buffer holds, so that new instances write what changed.
     progpu::native::range_upload_mirror text_vertex_mirror;
