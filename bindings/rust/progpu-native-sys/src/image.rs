@@ -9,6 +9,11 @@ pub const PROGPU_NATIVE_IMAGE_ERROR_UNSUPPORTED_FORMAT: u32 = 5;
 pub const PROGPU_NATIVE_IMAGE_ERROR_INSUFFICIENT_BUFFER: u32 = 6;
 pub const PROGPU_NATIVE_IMAGE_ERROR_INVALID_COMPRESSED_DATA: u32 = 7;
 pub const PROGPU_NATIVE_IMAGE_ERROR_OUT_OF_MEMORY: u32 = 8;
+pub const PROGPU_NATIVE_IMAGE_FORMAT_UNKNOWN: u32 = 0;
+pub const PROGPU_NATIVE_IMAGE_FORMAT_PNG: u32 = 1;
+pub const PROGPU_NATIVE_IMAGE_FORMAT_JPEG: u32 = 2;
+pub const PROGPU_NATIVE_IMAGE_FORMAT_GIF: u32 = 3;
+pub const PROGPU_NATIVE_IMAGE_FORMAT_BMP: u32 = 4;
 unsafe extern "C" {
     pub fn progpu_native_image_png_read_size(
         data: *const u8,
@@ -21,6 +26,26 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn progpu_native_image_png_decode_rgba(
+        data: *const u8,
+        size: usize,
+        rgba: *mut u8,
+        rgba_size: usize,
+        error: *mut u32,
+    ) -> ::core::ffi::c_int;
+}
+unsafe extern "C" {
+    pub fn progpu_native_image_read_size(
+        data: *const u8,
+        size: usize,
+        format: *mut u32,
+        width: *mut u32,
+        height: *mut u32,
+        rgba_size: *mut usize,
+        error: *mut u32,
+    ) -> ::core::ffi::c_int;
+}
+unsafe extern "C" {
+    pub fn progpu_native_image_decode_rgba(
         data: *const u8,
         size: usize,
         rgba: *mut u8,
