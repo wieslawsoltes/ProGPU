@@ -292,6 +292,17 @@ unsafe extern "C" {
     ) -> ::core::ffi::c_int;
 }
 unsafe extern "C" {
+    pub fn progpu_native_scene_builder_draw_rgb_glyph_run(
+        builder: *mut progpu_native_scene_builder,
+        glyph_resource_index: u32,
+        draw: *const progpu_native_scene_rgb_glyph_draw,
+        glyphs: *const progpu_native_scene_rgb_glyph_tile,
+        glyph_count: usize,
+        bounds: progpu_native_image_rect,
+        state_resource_index: u32,
+    ) -> ::core::ffi::c_int;
+}
+unsafe extern "C" {
     pub fn progpu_native_scene_builder_required_stream_size(
         builder: *const progpu_native_scene_builder,
     ) -> usize;

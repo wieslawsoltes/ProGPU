@@ -5,17 +5,23 @@
 // winding functions and scalar entrypoints. Only these RGB entries use binding4.
 struct RgbGlyphRasterPolicy {
     pixelGeometry: u32, // 0 flat, 1 RGB, 2 BGR; validated before dispatch.
-    filterModel: u32,   // 1: independent full-pixel-wide 8x8 box filters.
+    filterModel: u32,   // 1: independent full-pixel-wide 8x8 box filters; 2: the same weighted as five subpixel taps.
     reserved0: u32,
     reserved1: u32,
 };
 @group(0) @binding(4) var<uniform> rgbGlyphPolicy: RgbGlyphRasterPolicy;
 
+// The box of a channel with those one subpixel to either side: over subpixels the
+// taps (8, 77, 86, 77, 8)/256 to within 1/256. Byte coverage stays in whole units.
+fn glyph_rgb_fir5(center: u32, before: u32, after: u32) -> u32 {
+    return (208u * center + 24u * before + 24u * after + 128u) / 256u;
+}
+
 fn glyph_rgb_coverage_word(x: u32, y: u32) -> u32 {
     let outline = glyphRecords[uniforms.glyphIndex];
     let px = uniforms.xStart + f32(x);
     let py = uniforms.yStart + f32(y);
-    let green = glyph_row_coverage_byte(glyph_sample_row(px), py, outline);
+    var green = glyph_row_coverage_byte(glyph_sample_row(px), py, outline);
     var red = green;
     var blue = green;
     if (rgbGlyphPolicy.pixelGeometry != 0u) {
@@ -23,8 +29,17 @@ fn glyph_rgb_coverage_word(x: u32, y: u32) -> u32 {
         // quantized scalar atlas would perform a different second filter.
         let left = glyph_row_coverage_byte(glyph_sample_row(px - 1.0 / 3.0), py, outline);
         let right = glyph_row_coverage_byte(glyph_sample_row(px + 1.0 / 3.0), py, outline);
-        red = select(left, right, rgbGlyphPolicy.pixelGeometry == 2u);
-        blue = select(right, left, rgbGlyphPolicy.pixelGeometry == 2u);
+        var first = left;
+        var last = right;
+        if (rgbGlyphPolicy.filterModel == 2u) {
+            let outerLeft = glyph_row_coverage_byte(glyph_sample_row(px - 2.0 / 3.0), py, outline);
+            let outerRight = glyph_row_coverage_byte(glyph_sample_row(px + 2.0 / 3.0), py, outline);
+            first = glyph_rgb_fir5(left, outerLeft, green);
+            last = glyph_rgb_fir5(right, green, outerRight);
+            green = glyph_rgb_fir5(green, left, right);
+        }
+        red = select(first, last, rgbGlyphPolicy.pixelGeometry == 2u);
+        blue = select(last, first, rgbGlyphPolicy.pixelGeometry == 2u);
     }
     // Alpha is not max(R,G,B) or glyph opacity. This texture stores independent
     // channel coverage; only the RGB-aware compositor can consume it.

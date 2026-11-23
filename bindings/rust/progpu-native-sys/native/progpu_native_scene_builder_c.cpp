@@ -219,6 +219,14 @@ int progpu_native_scene_builder_draw_glyph_run(progpu_native_scene_builder* buil
         glyph_resource_index, span_of(glyphs, glyph_count), bounds, state_resource_index, text_style_index));
 }
 
+int progpu_native_scene_builder_draw_rgb_glyph_run(progpu_native_scene_builder* builder,
+    uint32_t glyph_resource_index, const progpu_native_scene_rgb_glyph_draw* draw,
+    const progpu_native_scene_rgb_glyph_tile* glyphs, size_t glyph_count, progpu_native_image_rect bounds,
+    uint32_t state_resource_index) {
+    return result(builder->builder.draw_rgb_glyph_run(
+        glyph_resource_index, *draw, span_of(glyphs, glyph_count), bounds, state_resource_index));
+}
+
 size_t progpu_native_scene_builder_required_stream_size(const progpu_native_scene_builder* builder) {
     return builder->builder.required_stream_size();
 }

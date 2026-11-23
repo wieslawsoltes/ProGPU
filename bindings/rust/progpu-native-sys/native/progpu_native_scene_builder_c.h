@@ -110,6 +110,14 @@ int progpu_native_scene_builder_draw_glyph_run(progpu_native_scene_builder* buil
     uint32_t glyph_resource_index, const progpu_native_positioned_glyph* glyphs, size_t glyph_count,
     progpu_native_image_rect bounds, uint32_t state_resource_index, uint32_t text_style_index);
 
+/* Glyphs with per-channel coverage, from a resource of whole outlines
+   (progpu_native_scene_builder_add_glyph_outlines), inside a layer with
+   PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA whose content is opaque. */
+int progpu_native_scene_builder_draw_rgb_glyph_run(progpu_native_scene_builder* builder,
+    uint32_t glyph_resource_index, const progpu_native_scene_rgb_glyph_draw* draw,
+    const progpu_native_scene_rgb_glyph_tile* glyphs, size_t glyph_count, progpu_native_image_rect bounds,
+    uint32_t state_resource_index);
+
 size_t progpu_native_scene_builder_required_stream_size(const progpu_native_scene_builder* builder);
 int progpu_native_scene_builder_build_into(const progpu_native_scene_builder* builder, void* destination,
     size_t destination_size, size_t* bytes_written);

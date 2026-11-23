@@ -2771,6 +2771,7 @@ const _: () = {
         [::core::mem::offset_of!(progpu_native_scene_glyph_draw, reserved1) - 20usize];
 };
 pub const PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8: progpu_native_rgb_glyph_filter = 1;
+pub const PROGPU_NATIVE_RGB_GLYPH_FIR5_8X8: progpu_native_rgb_glyph_filter = 2;
 pub type progpu_native_rgb_glyph_filter = ::core::ffi::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -2783,7 +2784,7 @@ pub struct progpu_native_scene_rgb_glyph_draw {
     pub enhanced_contrast: f32,
     pub cleartype_level: f32,
     pub dpi_scale: f32,
-    pub reserved0: u32,
+    pub coverage_transfer: u32,
     pub reserved1: u32,
 }
 #[cfg(target_pointer_width = "64")]
@@ -2809,8 +2810,8 @@ const _: () = {
         [::core::mem::offset_of!(progpu_native_scene_rgb_glyph_draw, cleartype_level) - 24usize];
     ["Offset of field: progpu_native_scene_rgb_glyph_draw::dpi_scale"]
         [::core::mem::offset_of!(progpu_native_scene_rgb_glyph_draw, dpi_scale) - 28usize];
-    ["Offset of field: progpu_native_scene_rgb_glyph_draw::reserved0"]
-        [::core::mem::offset_of!(progpu_native_scene_rgb_glyph_draw, reserved0) - 32usize];
+    ["Offset of field: progpu_native_scene_rgb_glyph_draw::coverage_transfer"]
+        [::core::mem::offset_of!(progpu_native_scene_rgb_glyph_draw, coverage_transfer) - 32usize];
     ["Offset of field: progpu_native_scene_rgb_glyph_draw::reserved1"]
         [::core::mem::offset_of!(progpu_native_scene_rgb_glyph_draw, reserved1) - 36usize];
 };

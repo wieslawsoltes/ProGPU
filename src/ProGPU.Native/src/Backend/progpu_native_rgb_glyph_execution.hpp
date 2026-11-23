@@ -12,13 +12,15 @@ namespace progpu::native::execution {
 // Internal explicit model, not the public DirectWrite rendering-mode enum.
 // The source adapter must retain its original parameters separately and cannot
 // select this model as a substitute for an unresolved hinted/default mode.
-enum class rgb_glyph_filter_model : std::uint32_t { full_pixel_box_8x8 = 1U };
+enum class rgb_glyph_filter_model : std::uint32_t { full_pixel_box_8x8 = 1U, fir5_8x8 = 2U };
 struct rgb_glyph_policy final {
     float gamma;
     float enhanced_contrast;
     float cleartype_level;
     std::uint32_t pixel_geometry;
     rgb_glyph_filter_model filter_model;
+    // 0, or the 14..78 encoding of GlyphCoverageTransfer.wgsl, for each channel.
+    std::uint32_t coverage_transfer = 0U;
 };
 struct rgb_glyph_tile final {
     gpu_glyph_record outline;

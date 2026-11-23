@@ -30,7 +30,7 @@ struct rgb_composite_frame final {
     float extent[2];
     float render_origin[2];
     std::uint32_t backdrop_origin[2];
-    std::uint32_t reserved[2];
+    std::uint32_t coverage_transfer[2];
 };
 static_assert(sizeof(rgb_composite_frame) == 32U);
 
@@ -242,7 +242,10 @@ progpu_native_status encode_linear_rgb_glyphs(
         segments.size() > 1048576U ||
         segments.size() > engine.max_buffer_size / sizeof(progpu_native_path_segment) ||
         policy.gamma != 1.0F || policy.enhanced_contrast != 0.0F || policy.cleartype_level != 1.0F ||
-        policy.pixel_geometry > 2U || policy.filter_model != rgb_glyph_filter_model::full_pixel_box_8x8 ||
+        policy.pixel_geometry > 2U ||
+        (policy.filter_model != rgb_glyph_filter_model::full_pixel_box_8x8 &&
+            policy.filter_model != rgb_glyph_filter_model::fir5_8x8) ||
+        (policy.coverage_transfer != 0U && (policy.coverage_transfer < 14U || policy.coverage_transfer > 78U)) ||
         (engine.target_format != WGPUTextureFormat_RGBA8Unorm && engine.target_format != WGPUTextureFormat_BGRA8Unorm) ||
         (engine.engine_flags & (PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
             PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U)
@@ -432,7 +435,7 @@ progpu_native_status encode_linear_rgb_glyphs(
         const std::array<std::uint32_t, 4U> raster_policy{
             policy.pixel_geometry, static_cast<std::uint32_t>(policy.filter_model), 0U, 0U};
         const rgb_composite_frame frame{{static_cast<float>(target_width), static_cast<float>(target_height)},
-            {0.0F, 0.0F}, {backdrop_x, backdrop_y}, {0U, 0U}};
+            {0.0F, 0.0F}, {backdrop_x, backdrop_y}, {policy.coverage_transfer, 0U}};
         if (!upload(resources.uniforms, uniform_bytes.data(), uniform_bytes.size(), WGPUBufferUsage_Uniform) ||
             !upload(resources.records, records.data(), records.size() * sizeof(gpu_glyph_record), WGPUBufferUsage_Storage) ||
             !upload(resources.segments, segments.data(), segments.size_bytes(), WGPUBufferUsage_Storage) ||
