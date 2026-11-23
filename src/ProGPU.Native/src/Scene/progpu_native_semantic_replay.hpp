@@ -199,6 +199,9 @@ struct semantic_image_draw {
 
 struct semantic_image_page {
     WGPUBuffer vertex_buffer = nullptr;
+    std::uint64_t vertex_buffer_capacity = 0U;
+    // What the buffer holds, so that a new page writes what changed.
+    progpu::native::range_upload_mirror vertex_mirror;
     std::uint64_t vertex_bytes = 0U;
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;

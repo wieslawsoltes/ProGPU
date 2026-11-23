@@ -3889,29 +3889,45 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic image packed-page budget did not match compilation.");
         }
-        WGPUBufferDescriptor vertex_descriptor{};
-        vertex_descriptor.label = progpu::native::webgpu::string_view(
-            "ProGPU semantic image packed vertex page");
-        vertex_descriptor.usage =
-            WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-        vertex_descriptor.size = vertex_bytes;
-        compiled_vertex_buffer = wgpuDeviceCreateBuffer(
-            engine->device,
-            &vertex_descriptor);
-        if (compiled_vertex_buffer == nullptr) {
-            release_compiled();
-            return engine->fail(
-                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
-                "The semantic image packed vertex page could not be allocated.");
+        // A page that fits the buffer of the page before keeps it and writes what changed.
+        const bool keep_vertex_buffer = semantic_image_page.vertex_buffer != nullptr &&
+            vertex_bytes <= semantic_image_page.vertex_buffer_capacity;
+        if (!keep_vertex_buffer) {
+            WGPUBufferDescriptor vertex_descriptor{};
+            vertex_descriptor.label = progpu::native::webgpu::string_view(
+                "ProGPU semantic image packed vertex page");
+            vertex_descriptor.usage =
+                WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            vertex_descriptor.size = vertex_bytes;
+            compiled_vertex_buffer = wgpuDeviceCreateBuffer(
+                engine->device,
+                &vertex_descriptor);
+            if (compiled_vertex_buffer == nullptr) {
+                release_compiled();
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                    "The semantic image packed vertex page could not be allocated.");
+            }
         }
-        wgpuQueueWriteBuffer(
-            engine->queue,
-            compiled_vertex_buffer,
-            0U,
-            vertices.data(),
-            static_cast<std::size_t>(vertex_bytes));
+        const WGPUBuffer image_vertex_target =
+            keep_vertex_buffer ? semantic_image_page.vertex_buffer : compiled_vertex_buffer;
+        const std::uint64_t image_vertex_capacity =
+            keep_vertex_buffer ? semantic_image_page.vertex_buffer_capacity : vertex_bytes;
+        progpu::native::range_upload_mirror image_vertex_mirror;
+        if (keep_vertex_buffer) {
+            image_vertex_mirror = std::move(semantic_image_page.vertex_mirror);
+            // It outlives the release of the page below.
+            semantic_image_page.vertex_buffer = nullptr;
+        }
+        semantic_image_vertex_upload_bytes = image_vertex_mirror.upload(
+            std::as_bytes(std::span(vertices)),
+            [engine, image_vertex_target](std::size_t offset, const std::byte* data, std::size_t size) noexcept {
+                wgpuQueueWriteBuffer(engine->queue, image_vertex_target, offset, data, size);
+            });
         engine->release_semantic_image_page();
-        semantic_image_page.vertex_buffer = compiled_vertex_buffer;
+        semantic_image_page.vertex_buffer = image_vertex_target;
+        semantic_image_page.vertex_buffer_capacity = image_vertex_capacity;
+        semantic_image_page.vertex_mirror = std::move(image_vertex_mirror);
         compiled_vertex_buffer = nullptr;
         semantic_image_page.vertex_bytes = vertex_bytes;
         semantic_image_page.draws = std::move(compiled_draws);
@@ -3920,7 +3936,6 @@ progpu_native_status render_scene(
         semantic_image_page.target_width = frame->width;
         semantic_image_page.target_height = frame->height;
         semantic_image_page.cache_valid = true;
-        semantic_image_vertex_upload_bytes = vertex_bytes;
         semantic_image_index_upload_bytes = created_resources
             ? 6U * sizeof(std::uint32_t)
             : 0U;
