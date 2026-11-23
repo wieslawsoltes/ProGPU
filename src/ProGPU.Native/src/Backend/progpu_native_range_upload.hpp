@@ -84,6 +84,8 @@ struct range_upload_counters {
     std::uint64_t upload_nanoseconds = 0U;
     std::uint64_t shifted_nanoseconds = 0U;
     std::uint64_t counting_nanoseconds = 0U;
+    // The part of it inside the encode stage, where the path and glyph pages upload.
+    std::uint64_t counting_in_encode_nanoseconds = 0U;
 };
 
 // What the words of a page mean to the comparison. Indices of a page move by the

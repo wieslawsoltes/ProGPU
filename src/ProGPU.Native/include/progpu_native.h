@@ -3647,7 +3647,8 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene_delta(
  * another offset of the same page, in windows of 256 bytes: what an insertion or
  * removal earlier in the page moved. shifted_nanoseconds is the time of the writes
  * shared out by bytes, so it is an estimate. counting_nanoseconds is the time spent
- * finding the shifted bytes, which the stage it ran in includes.
+ * finding the shifted bytes, which the stage it ran in includes;
+ * counting_in_encode_nanoseconds is the part of it inside the encode stage.
  */
 typedef struct progpu_native_upload_counters {
     uint32_t struct_size;
@@ -3657,6 +3658,7 @@ typedef struct progpu_native_upload_counters {
     uint64_t upload_nanoseconds;
     uint64_t shifted_nanoseconds;
     uint64_t counting_nanoseconds;
+    uint64_t counting_in_encode_nanoseconds;
 } progpu_native_upload_counters;
 
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_take_upload_counters(

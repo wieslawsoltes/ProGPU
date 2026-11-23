@@ -94,6 +94,7 @@ fn an_insertion_counts_as_shifted_and_uncounted_frames_add_nothing() {
         assert!(counters.shifted_bytes > counters.uploaded_bytes / 2, "{counters:?}");
         assert!(counters.shifted_bytes <= counters.uploaded_bytes);
         assert!(counters.shifted_nanoseconds <= counters.upload_nanoseconds);
+        assert!(counters.counting_in_encode_nanoseconds <= counters.counting_nanoseconds);
         assert_eq!(0, take(&gpu).uploaded_bytes, "taking the counters starts them again");
 
         let mut short = progpu_native_upload_counters { struct_size: 8, ..Default::default() };

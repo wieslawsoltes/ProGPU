@@ -177,6 +177,7 @@ progpu_native_status render_scene(
         capture_cpu_stages && trace_encode_requested();
     cpu_clock::time_point cpu_preflight_end{};
     cpu_clock::time_point cpu_resource_end{};
+    std::uint64_t counting_before_encode = 0U;
     cpu_clock::time_point cpu_prepare_end{};
     cpu_clock::time_point cpu_bundle_end{};
     cpu_clock::time_point cpu_encode_end{};
@@ -3949,7 +3950,10 @@ progpu_native_status render_scene(
             : 0U;
     }
 
-    if (capture_cpu_stages) cpu_resource_end = cpu_clock::now();
+    if (capture_cpu_stages) {
+        cpu_resource_end = cpu_clock::now();
+        counting_before_encode = engine->upload_counters.counting_nanoseconds;
+    }
     if (trace_encode_checkpoints) {
         trace_encode_checkpoint(
             "resources", cpu_preflight_end, cpu_resource_end,
@@ -6941,7 +6945,11 @@ progpu_native_status render_scene(
 
     draw_calls = executed_draw_calls;
 
-    if (capture_cpu_stages) cpu_encode_end = cpu_clock::now();
+    if (capture_cpu_stages) {
+        cpu_encode_end = cpu_clock::now();
+        engine->upload_counters.counting_in_encode_nanoseconds +=
+            engine->upload_counters.counting_nanoseconds - counting_before_encode;
+    }
     if (trace_encode_checkpoints) {
         trace_encode_checkpoint(
             "replay", cpu_bundle_end, cpu_encode_end,

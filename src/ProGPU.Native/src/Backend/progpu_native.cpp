@@ -532,6 +532,8 @@ progpu_native_status progpu_native_engine_take_upload_counters(
     counters->upload_nanoseconds = engine->upload_counters.upload_nanoseconds;
     counters->shifted_nanoseconds = engine->upload_counters.shifted_nanoseconds;
     counters->counting_nanoseconds = engine->upload_counters.counting_nanoseconds;
+    counters->counting_in_encode_nanoseconds =
+        engine->upload_counters.counting_in_encode_nanoseconds;
     engine->upload_counters = {};
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
