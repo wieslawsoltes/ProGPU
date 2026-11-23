@@ -1,0 +1,229 @@
+{
+  "utc": "2026-11-09T07:30:36.220880+00:00",
+  "instrument": "Xcode Instruments Time Profiler",
+  "window_seconds": 6,
+  "input_sha256": "f579ad4ceae4eb86647f7b1ff17760ecc5ffb67fbe3c25dcfb25776669cea3b9",
+  "workload": "20 identical 4096-unit ASCII preparation requests on the same two-font inventory; 100000 create/drop rounds per case; explicit witnessed normalization profile 170. Same final benchmark harness and default Release options.",
+  "limits": "CPU statistical samples include startup and core migration; time limit deliberately terminates both loops. Separate complete-output uninstrumented trials qualify only these creation/retirement workloads. Allocation-event, process-memory, complete shaping/frame and GPU qualification remain open.",
+  "runs": [
+    {
+      "version": "before",
+      "binary_sha256": "5c83563382cb848eac4e2f589e3571cda63cd8b1e24a7dad09fecb64c64e92cc",
+      "sample_count": 6006,
+      "missing_backtrace_samples": 0,
+      "cores": {
+        "CPU 9 (P Core)": 999,
+        "CPU 8 (P Core)": 1552,
+        "CPU 6 (P Core)": 1309,
+        "CPU 10 (P Core)": 900,
+        "CPU 7 (P Core)": 1245,
+        "CPU 1 (E Core)": 1
+      },
+      "top_leaf_functions": [
+        {
+          "name": "progpu::text::preparation::append_mapped::h93083f518af4c12b",
+          "leaf_samples": 4886,
+          "inclusive_samples": 4886
+        },
+        {
+          "name": "progpu::text::preparation::_$LT$impl$u20$progpu..font..layout..managed_gsub..buffer..ManagedGlyphBuffer$GT$::from_text::h874842388f2dd3d8",
+          "leaf_samples": 1011,
+          "inclusive_samples": 4236
+        },
+        {
+          "name": "mach_absolute_time",
+          "leaf_samples": 67,
+          "inclusive_samples": 67
+        },
+        {
+          "name": "progpu::font::layout::managed_gsub::buffer::ManagedGlyphBuffer::with_mark_profile::h041e7707f0513724",
+          "leaf_samples": 6,
+          "inclusive_samples": 6
+        },
+        {
+          "name": "managed_preparation_benchmark::main::hd3fc16e76c55989c",
+          "leaf_samples": 5,
+          "inclusive_samples": 6002
+        },
+        {
+          "name": "_xzm_xzone_malloc_tiny",
+          "leaf_samples": 4,
+          "inclusive_samples": 4
+        },
+        {
+          "name": "_xzm_free_large_huge",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "_xzm_free",
+          "leaf_samples": 2,
+          "inclusive_samples": 12
+        },
+        {
+          "name": "_xzm_malloc_large_huge",
+          "leaf_samples": 2,
+          "inclusive_samples": 23
+        },
+        {
+          "name": "core::slice::sort::stable::quicksort::quicksort::h5633d338a90c6c59",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "mach_vm_reclaim_try_enter",
+          "leaf_samples": 2,
+          "inclusive_samples": 11
+        },
+        {
+          "name": "0x1027c1e45",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld4::Loader::applyFixupsGeneric(Diagnostics&, dyld4::RuntimeState&, unsigned long long, dyld3::Array<void const*> const&, dyld3::Array<void const*> const&, bool, dyld3::Array<dyld4::Loader::MissingFlatLazySymbol> const&) const",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "progpu::text::unicode::normalization::Layout::parse::hd6b479ae52dbaa0f",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_xzm_segment_group_span_mark_smaller",
+          "leaf_samples": 1,
+          "inclusive_samples": 18
+        },
+        {
+          "name": "_xzm_segment_group_find_and_allocate_chunk",
+          "leaf_samples": 1,
+          "inclusive_samples": 19
+        }
+      ],
+      "export": "managed-preparation-before-time-profile.xml.gz",
+      "export_sha256": "b14f47f70e1294c61f4fb51e88fcbf1d26c23a9ca76faddcff221e710498150f",
+      "raw_export_sha256": "6d4e15310ec6c65bb5abc915f3093358617c246c4ab5f36ed4aa3f5a27284bde"
+    },
+    {
+      "version": "after",
+      "binary_sha256": "3c6c8bd717cba5a555c00216fb004e766b018a9ed0721befa6eea830aa3daf5f",
+      "sample_count": 6003,
+      "missing_backtrace_samples": 1,
+      "cores": {
+        "CPU 9 (P Core)": 1200,
+        "CPU 8 (P Core)": 1188,
+        "CPU 7 (P Core)": 1300,
+        "CPU 10 (P Core)": 966,
+        "CPU 6 (P Core)": 1349
+      },
+      "top_leaf_functions": [
+        {
+          "name": "progpu::text::preparation::append_mapped::h93083f518af4c12b",
+          "leaf_samples": 4941,
+          "inclusive_samples": 4941
+        },
+        {
+          "name": "progpu::text::preparation::_$LT$impl$u20$progpu..font..layout..managed_gsub..buffer..ManagedGlyphBuffer$GT$::from_text::h874842388f2dd3d8",
+          "leaf_samples": 992,
+          "inclusive_samples": 4221
+        },
+        {
+          "name": "mach_absolute_time",
+          "leaf_samples": 45,
+          "inclusive_samples": 45
+        },
+        {
+          "name": "progpu::font::layout::managed_gsub::buffer::ManagedGlyphBuffer::with_mark_profile::h041e7707f0513724",
+          "leaf_samples": 7,
+          "inclusive_samples": 7
+        },
+        {
+          "name": "_xzm_xzone_malloc_tiny",
+          "leaf_samples": 5,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "managed_preparation_benchmark::main::hd3fc16e76c55989c",
+          "leaf_samples": 3,
+          "inclusive_samples": 6000
+        },
+        {
+          "name": "_platform_memmove",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "mach_timebase_info",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "__xlocale_init",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "progpu::text::unicode::normalization::Layout::parse::hd6b479ae52dbaa0f",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "std::time::Instant::elapsed::h04f8666e88e9fb43",
+          "leaf_samples": 1,
+          "inclusive_samples": 27
+        },
+        {
+          "name": "<deduplicated_symbol>",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "core::slice::sort::stable::quicksort::quicksort::h5633d338a90c6c59",
+          "leaf_samples": 1,
+          "inclusive_samples": 3
+        }
+      ],
+      "export": "managed-preparation-after-time-profile.xml.gz",
+      "export_sha256": "a29679f15c45d858eacc0906576ffe13346758d057ca5a73e7a1e00f328a2c4c",
+      "raw_export_sha256": "c514297498b5ec9452b466098f1efa10cd6fb5df00acb1e43d6abcde15ec7cc2"
+    }
+  ],
+  "reproduction_exports": {
+    "managed-preparation-preparation-before.rs.gz": "3b5a2a22a3b84c168de28b6ed0bdcfb46ecd4d07480dac9bdc20b283f144e769",
+    "managed-preparation-buffer-before.rs.gz": "e4ab196da5424f6100a66630873766207b17baad675626b78034f79a7f07fa2a",
+    "managed-preparation-input.bin.gz": "174de89809e9bcb0a85c44c77600a6e64c4778a07453fc959cfc1ebda8fbe6c3"
+  },
+  "reproduction": "Decompress input.bin and run BINARY --profile INPUT 170 under the recorded six-second Time Profiler command. Rebuild before in an isolated checkout by replacing text/preparation.rs and font/layout/managed_gsub/buffer.rs from the retained before exports; keep the same final benchmark/replay sources and Cargo.lock.",
+  "allocation_instrument": {
+    "status": "unqualified; all recordings failed to start",
+    "launch": "After about four minutes the owned launched child remained stopped at _dyld_start with 96 KiB sampled footprint and no user-code execution. SIGINT/SIGTERM did not terminate the observer; its two exact owned PIDs were killed. This is diagnostic state, not application memory evidence.",
+    "attach_attempts": [
+      {
+        "version": "before",
+        "status": -9,
+        "recorded": false,
+        "log": "Starting recording with the Allocations template. Attaching to: before (28343). Time limit: 6.0 s\n"
+      },
+      {
+        "version": "after",
+        "status": -9,
+        "recorded": false,
+        "log": "Starting recording with the Allocations template. Attaching to: after (28384). Time limit: 6.0 s\n"
+      }
+    ],
+    "developer_mode": "enabled",
+    "binary_signature": "default adhoc, linker-signed; no security/compiler/driver setting changed",
+    "scope": "Both attach observers bounded at 25 seconds; their owned workload children were retired. No allocation tables were published.",
+    "allocation-startup-sample.txt": "Analysis of sampling before (pid 28171) every 1 millisecond\nProcess:         before [28171]\nPath:            /private/tmp/*/before\nLoad Address:    0x102994000\nIdentifier:      before\nVersion:         ???\nCode Type:       ARM64\nParent Process:  xctrace [28165]\nTarget Type:     live task\n\nDate/Time:       2026-11-09 08:19:12.862 +0100\nLaunch Time:     2026-11-09 08:16:17.062 +0100\nOS Version:      macOS 26.6 (25G72)\nReport Version:  7\nAnalysis Tool:   /usr/bin/sample\n\nPhysical footprint:         96K\nPhysical footprint (peak):  96K\nIdle exit:                  untracked\n----\n\nCall graph:\n    775 Thread_56550811: Main Thread   DispatchQueue_<multiple>\n      775 _dyld_start  (in dyld) + 0  [0x102ae09c0]\n\nTotal number in stack (recursive counted multiple, when >=5):\n\nSort by top of stack, same collapsed (when >= 5):\n        _dyld_start  (in dyld)        775\n\nBinary images description not available\n\n",
+    "before-allocations.log": "Starting recording with the Allocations template. Launching process: before. Time limit: 6.0 s\n"
+  },
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/preparation.rs": "8061b42c5720b1de5aef59c4a92b87742bfea061af7de6572806488c20530bc0",
+    "src/ProGPU.Rust/src/text/preparation/pool.rs": "9f18e5c93a451e6484cc78e9a451ce3ce1e0696ffa14d91a6f4c150bbb5b6943",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "41f8769c54f2e6cf1814de5933732f128e9ec8ffa25ccf4a56243a060d00e2f7",
+    "src/ProGPU.Rust/examples/managed_preparation_benchmark.rs": "4edaa554e896ae9f324a7d2d3caeb1c4aec5e501d849c831f8c746d59ccfd539",
+    "src/ProGPU.Rust/tests/managed_preparation.cs": "42cbd625c10506024ac25b82dd762941cf39905be7456e8a3df63febc5422858"
+  }
+}

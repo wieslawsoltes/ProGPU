@@ -1,0 +1,198 @@
+{
+  "utc": "2026-11-09T07:50:26.169761+00:00",
+  "scope": "Earlier console-triggered failure-only Linux DPR-2 process observation; no original-gate or production Rust change.",
+  "syntax_checks": "both JavaScript modules pass",
+  "existing_linux_process_selection_controls": "pass",
+  "local_host": "macOS arm64 / Chromium 151.0.7922.34 headless",
+  "receipts": {
+    "original": {
+      "sha256": "12e34e49ac7dba8e696b9f1bf15fd18a4329649ef6e96abb18b83c0197bec94e",
+      "reports": [
+        {
+          "dpr": 1,
+          "stage": "passed",
+          "checkedPixels": 102400,
+          "managedPreparationChecks": 332,
+          "shaders": 6,
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        },
+        {
+          "dpr": 2,
+          "stage": "passed",
+          "checkedPixels": 102400,
+          "managedPreparationChecks": 332,
+          "shaders": 6,
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        }
+      ]
+    },
+    "diagnostic": {
+      "sha256": "4b93dcc11b27c8f83969ba5c37d97237d36f37e32ef44bbcb01f32b82df361c7",
+      "reports": [
+        {
+          "dpr": 1,
+          "stage": "passed",
+          "checkedPixels": 102400,
+          "managedPreparationChecks": 332,
+          "shaders": 6,
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        },
+        {
+          "dpr": 2,
+          "stage": "passed",
+          "checkedPixels": 102400,
+          "managedPreparationChecks": 332,
+          "shaders": 6,
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "original_marker_count": 0,
+  "diagnostic_marker_count": 2,
+  "local_process_observer_armed": false,
+  "hosted_observer": "pending: local macOS correctly excludes the Linux observer; preceding hosted diagnostic failed before its old final-capture trigger",
+  "source_hashes": {
+    "src/ProGPU.Rust/browser/test.mjs": "bcba55af996926b305c7e3fe9591b99321478a25bd6dd9e4b24670d2846e706b",
+    "src/ProGPU.Rust/browser/diagnostics.mjs": "c7c979b109eff0f723beaeda2cc6e8ff978c39b512b4264eed67661ddb505cd0",
+    "src/ProGPU.Rust/browser/capture-gpu.py": "bf63072f48947cf3f5fc7446b98ada2a6cbb3d01178808821b6e32921618d55e",
+    "src/ProGPU.Rust/browser/capture-gpu-test.py": "11a43c4f15b62d82b78ec8db91dd416409f8d4a856c86294d054c080ff070181"
+  },
+  "package": {
+    "archive_files": 423,
+    "exact_original_files": 421,
+    "archive_sha256": "043c65e8f4ed693fd492bf2a73ec6a2ba7018f08cb7299a0f458f894643d00ec",
+    "scope": "Packaging-only exact-byte validation. Production Rust unchanged from the preparation checkpoint fresh native/WASM builds; original and diagnostic browser runs qualify the changed JavaScript locally. This compact receipt finalized after archive verification."
+  },
+  "cleanup": {
+    "removed": [
+      {
+        "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+        "logical_bytes": 2597537
+      },
+      {
+        "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+        "logical_bytes": 364024
+      },
+      {
+        "path": "/tmp/progpu-rust-preparation-hosted-browser.zip",
+        "logical_bytes": 88021
+      },
+      {
+        "path": "/tmp/progpu-rust-preparation-hosted-results.json",
+        "logical_bytes": 5089
+      },
+      {
+        "path": "/tmp/progpu-rust-preparation-hosted-diagnostic-rerun-results.json",
+        "logical_bytes": 72454
+      }
+    ],
+    "logical_bytes_removed": 3127125,
+    "preserved": "Full compact hosted failure receipts, local gate evidence and reusable build/tool caches.",
+    "crate_only_clean": "Removed 15 files, 16.1MiB total"
+  }
+}

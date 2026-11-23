@@ -1,0 +1,49 @@
+{
+  "utc": "2026-11-09T12:50:26.278311+00:00",
+  "removed": [
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-indic-package-af6mp613",
+      "logical_bytes": 407002297
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2695784
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148722
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/package/progpu-0.1.0.crate",
+      "logical_bytes": 2429190
+    },
+    {
+      "path": "/tmp/progpu-rust-indic",
+      "logical_bytes": 274328339
+    },
+    {
+      "path": "/tmp/progpu-rust-indic-package-dir",
+      "logical_bytes": 54
+    },
+    {
+      "path": "/tmp/progpu-rust-indic-package-source.json",
+      "logical_bytes": 63584
+    },
+    {
+      "path": "/tmp/progpu-rust-indic-package-native.log",
+      "logical_bytes": 2767
+    },
+    {
+      "path": "/tmp/progpu-rust-indic-package-wasm.log",
+      "logical_bytes": 2060
+    },
+    {
+      "path": "/tmp/progpu-rust-indic-package-check.py",
+      "logical_bytes": 2041
+    }
+  ],
+  "crate_only_cargo_clean": "Removed 26233 files, 1.9GiB total",
+  "additional_logical_bytes": 686674838,
+  "preserved": "Compact validation, original captures, full compressed Instruments exports/input, exact benchmark samples and package/hosted receipts. Reusable Cargo dependencies remain on the external volume; .NET, wasm-bindgen and browser tools retained. The preceding explicit low-disk cleanup is separately recorded in low-disk-cleanup-2026-11-09.json.",
+  "storage": "Local ignored target symlink points to the task-owned external Cargo cache. No tracked build configuration changed."
+}

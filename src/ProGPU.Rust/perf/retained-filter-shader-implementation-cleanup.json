@@ -1,0 +1,26 @@
+{
+  "observed_utc": "2026-11-09T22:28:26.302007+00:00",
+  "previous_head": "73ce284acad01a14482258b0ae9ed99146d1de57",
+  "workflow": "Mandatory implementation-first: no compilation, lint, tests, shader/browser execution, benchmarks or profiling",
+  "source_work": [
+    "Retained color-filter graphs and Texture matrices",
+    "Managed WGSL with 16 samplers",
+    "Retained Scene/Renderer and shared native/browser galleries",
+    "Original bitmap-cache sampler frame metadata"
+  ],
+  "new_runtime_benchmark_trace_package_artifacts": false,
+  "removed_logical_bytes": 0,
+  "cleanup_status": "No new build or result artifacts created; prior owned-incremental inventory found no obsolete duplicates",
+  "prior_inventory": "parallel-stack-implementation-cleanup.json",
+  "canonical_modules_included": 22,
+  "new_managed_shader_fragments_included": 8,
+  "last_successful_shader_checkpoint": {
+    "commit": "9393eb4f5216edc74cd006a0fdf74755b1a9af6c",
+    "modules": 18
+  },
+  "free_gib": {
+    "internal": 33.3,
+    "external": 207.74
+  },
+  "parallel_in_progress": "Native complex shaping is a separate forthcoming checkpoint"
+}

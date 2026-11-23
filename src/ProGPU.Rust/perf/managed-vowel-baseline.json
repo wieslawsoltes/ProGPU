@@ -1,0 +1,1152 @@
+{
+  "utc": "2026-11-09T10:01:20.581091+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    4.75048828125,
+    9.2802734375,
+    18.51904296875
+  ],
+  "normalization_profile": 170,
+  "source_runtime": ".NET 10.0.14 macOS 26.6.0",
+  "scope": "Three rotating-order process trials; first action, five warmups, 40 samples. Actual owned buffer preparation, typed raw-record restoration, witnesses and serialization excluded. Selected production actions timed; complete 31-field records, state and source context matched. Source GC allocation counters observed; Rust allocator events and full shaping/layout/frame qualification remain open.",
+  "input_sha256": "8882a464e670368beb84b2f26bf603091cf9115c36510af1adf51f76d7cf81d9",
+  "output_sha256": "1cab542f06fa9eb0ed46e7e112bc2d91033f320e83914746014cb2be55a0b213",
+  "rust_binary_sha256": "b2932af5d8858399675e3b4ed0e49e946eb32a8c2cb721fba07053f139d26b94",
+  "csharp_assembly_sha256": "fd8e295dab3c4e8e9f424b5c7a6e4d8042722ff51f73e0e0aedf88b24a0768a4",
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/script_actions.rs": "b359d279cf51575503d4b02b96977acc8310782b98425ea6ede3c5c998127f97",
+    "src/ProGPU.Rust/src/text/script_actions/joining.rs": "089c9ea67c2344f8e2fb18b29f434043c5c69d88049e1a7a8c019f8fbcec48cc",
+    "src/ProGPU.Rust/src/text/script_actions/joining_data.rs": "20ea6d3401e5c297a84cc1ca3ebe933a6291e1f4aa43bd535ba7a5e0251f35a8",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback.rs": "6acb3a16698e5de781623e37c7b392927d396e3b4ca22f7b4149042701b5ef14",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback_data.rs": "7a7114d94d4a16f50cd49515112bc0fb6d27cfbe57e3f7166ec55b49fe29438f",
+    "src/ProGPU.Rust/src/text/script_actions/vowel.rs": "87706a6b7936f94eb52d824dec3823a3df3a46272872fd89f5997d7d1d841b76",
+    "src/ProGPU.Rust/src/text/script_actions/vowel_data.rs": "5f3df8634c7fb473ef34001f07c780219453c7f980d121c15c7bc9e2252a1ce7",
+    "src/ProGPU.Rust/src/text/preparation.rs": "c6263f53b7ca626bb49c9b79ad3a60a6fea608371f6c815b8a8aa504b139ef10",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "ecc9f39b003896bc515d84e473b698ee40aeab3cda7a2b68ea21bd79b4b20546",
+    "src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs": "44144ffd64468b3f6235496829550ef3bf1cbd9056ddd6739693994544fc8ebb",
+    "src/ProGPU.Rust/tests/managed_script_actions.cs": "147c501fb4a3dad899b8107fb328549212d9a1423c89b4e0e69d78a0ca5a622c"
+  },
+  "workloads": [
+    {
+      "font": "full",
+      "pattern": "vowel-pairs",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 7.25,
+            "p50_us": 3.292,
+            "p95_us": 3.334,
+            "p99_us": 3.417
+          },
+          "csharp": {
+            "first_us": 1236.834,
+            "p50_us": 11.083,
+            "p95_us": 12.083,
+            "p99_us": 13.167,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 6.333,
+            "p50_us": 3.25,
+            "p95_us": 3.292,
+            "p99_us": 3.292
+          },
+          "csharp": {
+            "first_us": 1185.125,
+            "p50_us": 11.167,
+            "p95_us": 12.375,
+            "p99_us": 12.834,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 6.292,
+            "p50_us": 3.25,
+            "p95_us": 3.375,
+            "p99_us": 3.458
+          },
+          "csharp": {
+            "first_us": 1194.5,
+            "p50_us": 11.25,
+            "p95_us": 12.292,
+            "p99_us": 19.0,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-pairs",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3828.917,
+            "p50_us": 3634.666,
+            "p95_us": 3712.083,
+            "p99_us": 3829.458
+          },
+          "csharp": {
+            "first_us": 3906.458,
+            "p50_us": 3864.916,
+            "p95_us": 4015.0,
+            "p99_us": 4108.583,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3720.166,
+            "p50_us": 3588.75,
+            "p95_us": 3688.417,
+            "p99_us": 3736.209
+          },
+          "csharp": {
+            "first_us": 4037.542,
+            "p50_us": 3848.416,
+            "p95_us": 4042.208,
+            "p99_us": 4112.916,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3641.5,
+            "p50_us": 3568.959,
+            "p95_us": 3659.042,
+            "p99_us": 3694.625
+          },
+          "csharp": {
+            "first_us": 4037.542,
+            "p50_us": 3850.166,
+            "p95_us": 4062.0,
+            "p99_us": 4158.458,
+            "allocated_p50_bytes": 458776.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-triples",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 4.083,
+            "p50_us": 2.291,
+            "p95_us": 2.333,
+            "p99_us": 2.334
+          },
+          "csharp": {
+            "first_us": 5.75,
+            "p50_us": 3.542,
+            "p95_us": 4.166,
+            "p99_us": 4.584,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.084,
+            "p50_us": 2.292,
+            "p95_us": 2.417,
+            "p99_us": 6.167
+          },
+          "csharp": {
+            "first_us": 6.208,
+            "p50_us": 3.5,
+            "p95_us": 3.584,
+            "p99_us": 4.25,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.75,
+            "p50_us": 2.292,
+            "p95_us": 2.375,
+            "p99_us": 2.417
+          },
+          "csharp": {
+            "first_us": 5.375,
+            "p50_us": 3.417,
+            "p95_us": 3.583,
+            "p99_us": 3.667,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-triples",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2523.125,
+            "p50_us": 2386.334,
+            "p95_us": 2472.75,
+            "p99_us": 2473.208
+          },
+          "csharp": {
+            "first_us": 2464.667,
+            "p50_us": 2469.042,
+            "p95_us": 2612.375,
+            "p99_us": 2685.75,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2493.542,
+            "p50_us": 2356.667,
+            "p95_us": 2435.5,
+            "p99_us": 2447.75
+          },
+          "csharp": {
+            "first_us": 2601.208,
+            "p50_us": 2532.625,
+            "p95_us": 2684.292,
+            "p99_us": 2757.791,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2403.333,
+            "p50_us": 2392.375,
+            "p95_us": 2470.541,
+            "p99_us": 2498.709
+          },
+          "csharp": {
+            "first_us": 2494.708,
+            "p50_us": 2494.75,
+            "p95_us": 2696.292,
+            "p99_us": 2726.0,
+            "allocated_p50_bytes": 458776.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-pair-shadow",
+      "records": 128,
+      "script": "gujr",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 4.959,
+            "p50_us": 2.583,
+            "p95_us": 2.625,
+            "p99_us": 2.666
+          },
+          "csharp": {
+            "first_us": 6.583,
+            "p50_us": 5.208,
+            "p95_us": 5.291,
+            "p99_us": 5.292,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.458,
+            "p50_us": 2.667,
+            "p95_us": 3.416,
+            "p99_us": 3.541
+          },
+          "csharp": {
+            "first_us": 9.208,
+            "p50_us": 5.625,
+            "p95_us": 7.042,
+            "p99_us": 7.208,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.916,
+            "p50_us": 2.584,
+            "p95_us": 2.625,
+            "p99_us": 2.667
+          },
+          "csharp": {
+            "first_us": 7.084,
+            "p50_us": 5.25,
+            "p95_us": 5.292,
+            "p99_us": 5.334,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-pair-shadow",
+      "records": 4096,
+      "script": "gujr",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2419.167,
+            "p50_us": 2394.875,
+            "p95_us": 2473.292,
+            "p99_us": 2481.583
+          },
+          "csharp": {
+            "first_us": 2528.167,
+            "p50_us": 2533.5,
+            "p95_us": 2734.417,
+            "p99_us": 5501.667,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2398.708,
+            "p50_us": 2397.75,
+            "p95_us": 2478.208,
+            "p99_us": 2512.25
+          },
+          "csharp": {
+            "first_us": 2703.75,
+            "p50_us": 2583.75,
+            "p95_us": 2738.208,
+            "p99_us": 5947.0,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2453.292,
+            "p50_us": 2424.75,
+            "p95_us": 2485.25,
+            "p99_us": 2493.167
+          },
+          "csharp": {
+            "first_us": 2568.292,
+            "p50_us": 2584.875,
+            "p95_us": 2726.916,
+            "p99_us": 5657.875,
+            "allocated_p50_bytes": 458776.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-miss",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.667,
+            "p50_us": 1.625,
+            "p95_us": 1.667,
+            "p99_us": 1.667
+          },
+          "csharp": {
+            "first_us": 7.292,
+            "p50_us": 5.833,
+            "p95_us": 5.958,
+            "p99_us": 6.333,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.75,
+            "p50_us": 1.625,
+            "p95_us": 1.666,
+            "p99_us": 1.667
+          },
+          "csharp": {
+            "first_us": 7.208,
+            "p50_us": 6.0,
+            "p95_us": 6.167,
+            "p99_us": 7.791,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.584,
+            "p50_us": 1.625,
+            "p95_us": 2.042,
+            "p99_us": 2.167
+          },
+          "csharp": {
+            "first_us": 11.042,
+            "p50_us": 6.042,
+            "p95_us": 6.209,
+            "p99_us": 6.375,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-miss",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 50.167,
+            "p50_us": 51.042,
+            "p95_us": 57.042,
+            "p99_us": 68.959
+          },
+          "csharp": {
+            "first_us": 165.625,
+            "p50_us": 159.792,
+            "p95_us": 176.084,
+            "p99_us": 188.125,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 50.583,
+            "p50_us": 50.917,
+            "p95_us": 55.709,
+            "p99_us": 62.125
+          },
+          "csharp": {
+            "first_us": 192.25,
+            "p50_us": 162.083,
+            "p95_us": 181.5,
+            "p99_us": 183.542,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 50.333,
+            "p50_us": 51.667,
+            "p95_us": 59.25,
+            "p99_us": 62.875
+          },
+          "csharp": {
+            "first_us": 160.459,
+            "p50_us": 158.917,
+            "p95_us": 173.5,
+            "p99_us": 180.541,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-disabled-script",
+      "records": 128,
+      "script": "latn",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 1.583,
+            "p50_us": 0.792,
+            "p95_us": 0.792,
+            "p99_us": 0.833
+          },
+          "csharp": {
+            "first_us": 6.458,
+            "p50_us": 6.0,
+            "p95_us": 7.084,
+            "p99_us": 7.583,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.334,
+            "p50_us": 0.792,
+            "p95_us": 0.875,
+            "p99_us": 0.917
+          },
+          "csharp": {
+            "first_us": 6.333,
+            "p50_us": 6.0,
+            "p95_us": 7.75,
+            "p99_us": 8.0,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.042,
+            "p50_us": 0.792,
+            "p95_us": 1.042,
+            "p99_us": 8.541
+          },
+          "csharp": {
+            "first_us": 7.166,
+            "p50_us": 5.958,
+            "p95_us": 6.084,
+            "p99_us": 6.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "vowel-disabled-script",
+      "records": 4096,
+      "script": "latn",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 24.792,
+            "p50_us": 24.708,
+            "p95_us": 29.0,
+            "p99_us": 35.458
+          },
+          "csharp": {
+            "first_us": 156.834,
+            "p50_us": 153.542,
+            "p95_us": 162.209,
+            "p99_us": 169.25,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 24.75,
+            "p50_us": 24.875,
+            "p95_us": 24.958,
+            "p99_us": 24.959
+          },
+          "csharp": {
+            "first_us": 157.25,
+            "p50_us": 153.625,
+            "p95_us": 170.959,
+            "p99_us": 174.375,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 24.667,
+            "p50_us": 24.625,
+            "p95_us": 29.584,
+            "p99_us": 31.0
+          },
+          "csharp": {
+            "first_us": 159.083,
+            "p50_us": 154.375,
+            "p95_us": 161.792,
+            "p99_us": 184.958,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-pairs",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 4.75,
+            "p50_us": 3.334,
+            "p95_us": 3.5,
+            "p99_us": 3.541
+          },
+          "csharp": {
+            "first_us": 6.333,
+            "p50_us": 4.458,
+            "p95_us": 4.542,
+            "p99_us": 9.417,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.542,
+            "p50_us": 3.333,
+            "p95_us": 3.417,
+            "p99_us": 3.459
+          },
+          "csharp": {
+            "first_us": 5.916,
+            "p50_us": 4.583,
+            "p95_us": 4.625,
+            "p99_us": 4.708,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.375,
+            "p50_us": 3.292,
+            "p95_us": 3.334,
+            "p99_us": 3.375
+          },
+          "csharp": {
+            "first_us": 5.959,
+            "p50_us": 4.625,
+            "p95_us": 4.708,
+            "p99_us": 4.75,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-pairs",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3573.958,
+            "p50_us": 3617.792,
+            "p95_us": 3733.125,
+            "p99_us": 3973.167
+          },
+          "csharp": {
+            "first_us": 3800.083,
+            "p50_us": 3716.292,
+            "p95_us": 3936.834,
+            "p99_us": 4108.75,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3670.958,
+            "p50_us": 3585.917,
+            "p95_us": 3698.709,
+            "p99_us": 3711.209
+          },
+          "csharp": {
+            "first_us": 3723.75,
+            "p50_us": 3781.375,
+            "p95_us": 3953.583,
+            "p99_us": 3999.833,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3482.458,
+            "p50_us": 3595.5,
+            "p95_us": 3691.583,
+            "p99_us": 3723.208
+          },
+          "csharp": {
+            "first_us": 3771.208,
+            "p50_us": 3700.5,
+            "p95_us": 3836.375,
+            "p99_us": 3868.042,
+            "allocated_p50_bytes": 458776.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-triples",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 4.208,
+            "p50_us": 2.334,
+            "p95_us": 2.375,
+            "p99_us": 2.417
+          },
+          "csharp": {
+            "first_us": 4.417,
+            "p50_us": 2.625,
+            "p95_us": 2.708,
+            "p99_us": 2.709,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.584,
+            "p50_us": 2.292,
+            "p95_us": 2.833,
+            "p99_us": 3.041
+          },
+          "csharp": {
+            "first_us": 4.375,
+            "p50_us": 2.625,
+            "p95_us": 2.708,
+            "p99_us": 9.5,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.292,
+            "p50_us": 2.292,
+            "p95_us": 2.917,
+            "p99_us": 3.167
+          },
+          "csharp": {
+            "first_us": 4.125,
+            "p50_us": 2.791,
+            "p95_us": 2.834,
+            "p99_us": 2.875,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-triples",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2408.709,
+            "p50_us": 2409.041,
+            "p95_us": 2481.875,
+            "p99_us": 2488.125
+          },
+          "csharp": {
+            "first_us": 2494.542,
+            "p50_us": 2440.917,
+            "p95_us": 2558.417,
+            "p99_us": 2627.542,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2385.75,
+            "p50_us": 2411.166,
+            "p95_us": 2498.792,
+            "p99_us": 2519.333
+          },
+          "csharp": {
+            "first_us": 2389.041,
+            "p50_us": 2462.0,
+            "p95_us": 2606.833,
+            "p99_us": 2682.875,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2393.583,
+            "p50_us": 2384.334,
+            "p95_us": 2434.625,
+            "p99_us": 2470.167
+          },
+          "csharp": {
+            "first_us": 2491.583,
+            "p50_us": 2451.458,
+            "p95_us": 2564.834,
+            "p99_us": 2615.083,
+            "allocated_p50_bytes": 458776.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-pair-shadow",
+      "records": 128,
+      "script": "gujr",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 4.834,
+            "p50_us": 2.666,
+            "p95_us": 2.667,
+            "p99_us": 2.667
+          },
+          "csharp": {
+            "first_us": 6.458,
+            "p50_us": 4.0,
+            "p95_us": 4.708,
+            "p99_us": 5.167,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.417,
+            "p50_us": 2.625,
+            "p95_us": 2.667,
+            "p99_us": 2.75
+          },
+          "csharp": {
+            "first_us": 5.542,
+            "p50_us": 4.208,
+            "p95_us": 4.458,
+            "p99_us": 4.459,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.5,
+            "p50_us": 2.708,
+            "p95_us": 2.709,
+            "p99_us": 2.709
+          },
+          "csharp": {
+            "first_us": 5.0,
+            "p50_us": 3.916,
+            "p95_us": 3.917,
+            "p99_us": 3.958,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-pair-shadow",
+      "records": 4096,
+      "script": "gujr",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2445.166,
+            "p50_us": 2403.959,
+            "p95_us": 2500.917,
+            "p99_us": 2521.916
+          },
+          "csharp": {
+            "first_us": 2495.125,
+            "p50_us": 2510.25,
+            "p95_us": 2650.042,
+            "p99_us": 2740.917,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2367.459,
+            "p50_us": 2401.25,
+            "p95_us": 2485.083,
+            "p99_us": 2552.167
+          },
+          "csharp": {
+            "first_us": 2581.125,
+            "p50_us": 2514.541,
+            "p95_us": 2657.083,
+            "p99_us": 2687.375,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2407.0,
+            "p50_us": 2405.833,
+            "p95_us": 2505.375,
+            "p99_us": 2973.208
+          },
+          "csharp": {
+            "first_us": 2481.917,
+            "p50_us": 2519.666,
+            "p95_us": 2725.416,
+            "p99_us": 2989.625,
+            "allocated_p50_bytes": 458776.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-miss",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.666,
+            "p50_us": 1.584,
+            "p95_us": 1.625,
+            "p99_us": 1.666
+          },
+          "csharp": {
+            "first_us": 5.375,
+            "p50_us": 5.166,
+            "p95_us": 5.875,
+            "p99_us": 6.667,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.875,
+            "p50_us": 1.625,
+            "p95_us": 1.667,
+            "p99_us": 1.667
+          },
+          "csharp": {
+            "first_us": 5.084,
+            "p50_us": 4.542,
+            "p95_us": 4.667,
+            "p99_us": 8.208,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.708,
+            "p50_us": 1.583,
+            "p95_us": 1.666,
+            "p99_us": 1.667
+          },
+          "csharp": {
+            "first_us": 5.041,
+            "p50_us": 4.5,
+            "p95_us": 4.542,
+            "p99_us": 4.542,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-miss",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 50.542,
+            "p50_us": 50.875,
+            "p95_us": 51.125,
+            "p99_us": 64.459
+          },
+          "csharp": {
+            "first_us": 170.583,
+            "p50_us": 166.5,
+            "p95_us": 186.333,
+            "p99_us": 196.083,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 54.5,
+            "p50_us": 50.833,
+            "p95_us": 58.709,
+            "p99_us": 66.042
+          },
+          "csharp": {
+            "first_us": 145.541,
+            "p50_us": 144.709,
+            "p95_us": 158.583,
+            "p99_us": 159.542,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 49.541,
+            "p50_us": 50.25,
+            "p95_us": 54.791,
+            "p99_us": 55.208
+          },
+          "csharp": {
+            "first_us": 166.208,
+            "p50_us": 144.459,
+            "p95_us": 152.333,
+            "p99_us": 161.083,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-disabled-script",
+      "records": 128,
+      "script": "latn",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 1.708,
+            "p50_us": 0.791,
+            "p95_us": 0.792,
+            "p99_us": 0.833
+          },
+          "csharp": {
+            "first_us": 5.209,
+            "p50_us": 4.834,
+            "p95_us": 6.291,
+            "p99_us": 6.334,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.875,
+            "p50_us": 0.792,
+            "p95_us": 1.0,
+            "p99_us": 1.084
+          },
+          "csharp": {
+            "first_us": 5.875,
+            "p50_us": 4.625,
+            "p95_us": 4.666,
+            "p99_us": 4.667,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.25,
+            "p50_us": 0.792,
+            "p95_us": 0.792,
+            "p99_us": 0.833
+          },
+          "csharp": {
+            "first_us": 5.209,
+            "p50_us": 4.291,
+            "p95_us": 4.333,
+            "p99_us": 4.417,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "vowel-disabled-script",
+      "records": 4096,
+      "script": "latn",
+      "actions": [
+        68
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 24.708,
+            "p50_us": 24.625,
+            "p95_us": 24.709,
+            "p99_us": 24.792
+          },
+          "csharp": {
+            "first_us": 154.75,
+            "p50_us": 149.333,
+            "p95_us": 163.5,
+            "p99_us": 182.583,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 24.709,
+            "p50_us": 25.084,
+            "p95_us": 29.167,
+            "p99_us": 31.917
+          },
+          "csharp": {
+            "first_us": 151.75,
+            "p50_us": 147.459,
+            "p95_us": 158.292,
+            "p99_us": 165.459,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 24.709,
+            "p50_us": 24.625,
+            "p95_us": 24.708,
+            "p99_us": 25.083
+          },
+          "csharp": {
+            "first_us": 136.958,
+            "p50_us": 136.583,
+            "p95_us": 144.459,
+            "p99_us": 153.917,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1043 @@
+//! Original brush-alpha drawing and bounded sampled-mask materialization.
+use super::*;
+use crate::{
+    image::{GpuImage, ImageAlpha},
+    mask::{
+        Mask, MaskChannel, MaskComposer, MaskCompositionMetrics, MaskSampling, MaskUniforms,
+        SampledMaskInput, TextureMask,
+    },
+    scene::CompiledDrawState,
+};
+use std::collections::{HashMap, HashSet};
+
+/// Original shader brush evaluation frame, explicitly independent of geometry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MaskBrushFrame {
+    /// Original native brush/geometry opacity masks use target-space materials.
+    #[default]
+    Target,
+    /// Original ordinary geometry-mask shader retains primitive-local materials.
+    Local,
+}
+/// Actual GPU-generated R8 alpha coverage and its preparation evidence.
+pub struct CapturedMask {
+    image: GpuImage,
+    source: UploadMetrics,
+    metrics: MaskCompositionMetrics,
+}
+impl CapturedMask {
+    /// Actual GPU-generated R8 coverage owner.
+    pub fn image(&self) -> &GpuImage {
+        &self.image
+    }
+    /// Transfer the completed source texture into a retained sampled mask.
+    pub fn into_image(self) -> GpuImage {
+        self.image
+    }
+    /// Actual earlier geometry/material/path preparation work.
+    pub fn source_metrics(&self) -> UploadMetrics {
+        self.source
+    }
+    /// Actual mask target allocation and encoded render work.
+    pub fn metrics(&self) -> MaskCompositionMetrics {
+        self.metrics
+    }
+}
+pub(super) struct MaterialMaskState {
+    composer: MaskComposer,
+    coverage: Option<wgpu::RenderPipeline>,
+    geometry: [Option<wgpu::RenderPipeline>; 2],
+    bounded: super::bounded_mask::BoundedMaskPipelines,
+}
+impl MaterialMaskState {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
+        Ok(Self {
+            composer: MaskComposer::new(device, queue, ExecutionPreference::Automatic)?,
+            coverage: None,
+            geometry: [None, None],
+            bounded: Default::default(),
+        })
+    }
+    async fn coverage(&mut self, device: &wgpu::Device) -> Result<wgpu::RenderPipeline, Error> {
+        if self.coverage.is_none() {
+            self.coverage = Some(
+                image::pipeline_entry(
+                    device,
+                    wgpu::TextureFormat::R8Unorm,
+                    false,
+                    crate::scene::LayerBlend::Src,
+                    true,
+                    Some("fs_layer_coverage"),
+                )
+                .await?,
+            );
+        }
+        Ok(self.coverage.as_ref().ok_or(Error::ResourceDomain)?.clone())
+    }
+    async fn geometry(
+        &mut self,
+        device: &wgpu::Device,
+        frame: MaskBrushFrame,
+    ) -> Result<wgpu::RenderPipeline, Error> {
+        let index = usize::from(frame == MaskBrushFrame::Local);
+        if let Some(p) = &self.geometry[index] {
+            return Ok(p.clone());
+        }
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ProGPU canonical brush-mask shader"),
+            source: wgpu::ShaderSource::Wgsl(shaders::VECTOR.into()),
+        });
+        let layout = layout::pipeline(device, layout::Family::Vector, None);
+        let attributes = wgpu::vertex_attr_array![0=>Float32x2,1=>Float32x4,2=>Float32x2,3=>Float32,4=>Float32x2,5=>Float32,6=>Float32,7=>Float32];
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ProGPU original R8 brush-mask pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: 56,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &attributes,
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some(if frame == MaskBrushFrame::Target {
+                    "fs_mask_target_space"
+                } else {
+                    "fs_mask_unmasked"
+                }),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::R8Unorm,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        if let Some(error) = scope.pop().await {
+            return Err(error.into());
+        }
+        self.geometry[index] = Some(pipeline.clone());
+        Ok(pipeline)
+    }
+}
+impl PreparedScene {
+    /// Actual preparation work for materialized masks. Stable scene replay
+    /// samples their retained outputs without recomputing these passes.
+    pub fn mask_composition_metrics(&self) -> MaskCompositionMetrics {
+        self.masks
+            .as_ref()
+            .map_or_else(Default::default, |m| m.composition)
+    }
+}
+impl Renderer {
+    pub(super) fn mask_resource_cost(
+        &self,
+        scene: &Scene,
+        states: &[CompiledDrawState],
+        changes: &[Option<usize>],
+        frame: RenderFrame,
+    ) -> Result<(u64, u32), Error> {
+        mask_cost(states, scene.used_mask_states(changes), frame, self.format)
+    }
+    pub(super) fn compiled_mask_cost(
+        &self,
+        compiled: &CompiledScene,
+        frame: RenderFrame,
+    ) -> Result<(u64, u32), Error> {
+        let mut current = 0;
+        let used = compiled.draws.iter().filter_map(|draw| match draw {
+            DrawRange::State(index) => {
+                current = *index;
+                None
+            }
+            DrawRange::Clear(_)
+            | DrawRange::Axis(_)
+            | DrawRange::Series(_)
+            | DrawRange::Hatch(_)
+            | DrawRange::ThreeDLine(_)
+            | DrawRange::ThreeDAcis(_)
+            | DrawRange::CustomGrid(_) => None,
+            DrawRange::ImageEffect(index) if compiled.image_effects[*index].mask.is_some() => None,
+            _ => Some(current),
+        });
+        mask_cost(&compiled.states, used, frame, self.format)
+    }
+
+    /// Render original compiled vector/path/stroke material alpha to R8 with
+    /// the native no-blend overwrite policy. Full source geometry is preserved;
+    /// picture composition instead uses an ordinary RGBA capture's alpha.
+    pub async fn capture_geometry_mask(
+        &mut self,
+        compiled: &CompiledScene,
+        frame: Frame,
+        brush_frame: MaskBrushFrame,
+    ) -> Result<CapturedMask, Error> {
+        if compiled.states.len() != 1
+            || compiled.states[0].clip.is_some()
+            || compiled
+                .draws
+                .iter()
+                .any(|d| !matches!(d, DrawRange::Vector(_)))
+        {
+            return Err(Error::UnsupportedExecution);
+        }
+        frame.uniforms(self.device.limits().max_texture_dimension_2d)?;
+        let bytes = u64::from(frame.width) * u64::from(frame.height);
+        if bytes > 512 * 1024 * 1024 {
+            return Err(Error::Capacity);
+        }
+        let prepared = self.prepare_compiled(compiled, frame).await?;
+        let mut state = match self.materialized_masks.take() {
+            Some(s) => s,
+            None => MaterialMaskState::new(&self.device, &self.queue)?,
+        };
+        let pipeline = state.geometry(&self.device, brush_frame).await?;
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let output = texture(
+            &self.device,
+            [frame.width, frame.height],
+            "ProGPU retained geometry/brush mask",
+        );
+        let view = output.create_view(&Default::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("ProGPU original geometry-mask capture"),
+            });
+        {
+            let mut pass = begin(&mut encoder, &view);
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &prepared.bindings, &[]);
+            pass.set_bind_group(1, &prepared.atlas, &[]);
+            pass.set_vertex_buffer(0, prepared.vertices.slice(..));
+            pass.set_index_buffer(prepared.indices.slice(..), wgpu::IndexFormat::Uint32);
+            for draw in &prepared.draws {
+                if let DrawRange::Vector(range) = draw {
+                    pass.draw_indexed(range.clone(), 0, 0..1);
+                }
+            }
+        }
+        let command = encoder.finish();
+        if let Some(error) = scope.pop().await {
+            return Err(error.into());
+        }
+        self.queue.submit([command]);
+        prepared.retain_submitted_images(&self.queue);
+        self.materialized_masks = Some(state);
+        Ok(CapturedMask {
+            image: GpuImage::from_texture(&self.device, &output, ImageAlpha::Straight)?,
+            source: prepared.metrics,
+            metrics: MaskCompositionMetrics {
+                nodes: 1,
+                render_passes: 1,
+                texture_bytes: bytes,
+                ..Default::default()
+            },
+        })
+    }
+    pub(super) async fn resolve_mask_states(
+        &mut self,
+        compiled: &CompiledScene,
+        frame: RenderFrame,
+        cache: &mut mask::MaskState,
+        uploads: &mut UploadMetrics,
+    ) -> Result<(Vec<CompiledDrawState>, MaskCompositionMetrics), Error> {
+        let mut used = HashSet::new();
+        let mut current = 0;
+        for draw in &compiled.draws {
+            if let DrawRange::State(index) = draw {
+                current = *index;
+                continue;
+            }
+            if !matches!(
+                draw,
+                DrawRange::Clear(_)
+                    | DrawRange::Axis(_)
+                    | DrawRange::Hatch(_)
+                    | DrawRange::Series(_)
+                    | DrawRange::ThreeDLine(_)
+                    | DrawRange::ThreeDAcis(_)
+                    | DrawRange::CustomGrid(_)
+            ) && frame.clip_intersects(compiled.states[current].clip)
+            {
+                if let DrawRange::ImageEffect(index) = draw
+                    && compiled.image_effects[*index].mask.is_some()
+                {
+                    continue;
+                }
+                used.insert(current);
+            }
+        }
+        let mut normalized = HashMap::<usize, CompiledDrawState>::new();
+        let mut resolved = Vec::with_capacity(compiled.states.len());
+        for source in &compiled.states {
+            let identity = Arc::as_ptr(&source.components) as *const () as usize;
+            let base = if let Some(base) = normalized.get(&identity) {
+                base.clone()
+            } else {
+                let mut input = source.clone();
+                input.clip = None;
+                input.logical_clip = None;
+                let base =
+                    resolve_geometry(&input, frame, self.device.limits().max_texture_dimension_2d)?;
+                let base = super::bounded_mask::resolve_solid(
+                    &base,
+                    frame,
+                    self.device.limits().max_texture_dimension_2d,
+                )?
+                .unwrap_or(base);
+                normalized.insert(identity, base.clone());
+                base
+            };
+            let mut result = base;
+            result.blend = source.blend;
+            result.logical_clip = match (result.logical_clip, source.logical_clip) {
+                (Some(a), Some(b)) => Some([
+                    a[0].max(b[0]),
+                    a[1].max(b[1]),
+                    a[2].min(b[2]),
+                    a[3].min(b[3]),
+                ]),
+                (a, b) => a.or(b),
+            };
+            result.clip = match (result.clip, source.clip) {
+                (Some(a), Some(b)) => Some([
+                    a[0].max(b[0]),
+                    a[1].max(b[1]),
+                    a[2].min(b[2]),
+                    a[3].min(b[3]),
+                ]),
+                (a, b) => a.or(b),
+            };
+            if source.materialized && result.count > 1 {
+                result.materialized = true;
+                result.count = 1;
+                result.masks = [MaskUniforms::zeroed(); 4];
+                result.coverage = None;
+            }
+            resolved.push(result);
+        }
+        let mut metrics = MaskCompositionMetrics::default();
+        let mut outputs = HashMap::<usize, (TextureMask, MaskUniforms)>::new();
+        let mut state = None;
+        let mut textures = HashSet::new();
+        // Whole active inventory before allocating any mask output.
+        mask_cost(&resolved, used.iter().copied(), frame, self.format)?;
+        // Stable state order preserves deterministic uploads and submission order.
+        for (index, source) in resolved.iter_mut().enumerate() {
+            if !source.materialized || !used.contains(&index) {
+                continue;
+            }
+            let identity = Arc::as_ptr(&source.components) as *const () as usize;
+            let (coverage, uniform) = if let Some(output) = outputs.get(&identity) {
+                output.clone()
+            } else {
+                if state.is_none() {
+                    state = Some(match self.materialized_masks.take() {
+                        Some(s) => s,
+                        None => MaterialMaskState::new(&self.device, &self.queue)?,
+                    });
+                }
+                let output_frame = super::bounded_mask::storage_bounds(source, frame).frame(frame);
+                let output = self
+                    .materialize_mask(
+                        source,
+                        output_frame,
+                        cache,
+                        state.as_mut().ok_or(Error::ResourceDomain)?,
+                        uploads,
+                        &mut textures,
+                    )
+                    .await;
+                let (image, m) = match output {
+                    Ok(output) => output,
+                    Err(error) => {
+                        self.materialized_masks = state.take();
+                        return Err(error);
+                    }
+                };
+                if let Err(error) = metrics.merge(m) {
+                    self.materialized_masks = state.take();
+                    return Err(error);
+                }
+                let coverage = TextureMask::new(
+                    image,
+                    [
+                        0.0,
+                        0.0,
+                        output_frame.width as f32,
+                        output_frame.height as f32,
+                    ],
+                    MaskChannel::Red,
+                );
+                let uniform = MaskUniforms {
+                    coordinate0: [
+                        output_frame.origin[0] as f32,
+                        output_frame.origin[1] as f32,
+                        0.0,
+                        0.0,
+                    ],
+                    coordinate1: [
+                        1.0 / output_frame.width as f32,
+                        1.0 / output_frame.height as f32,
+                        0.0,
+                        0.0,
+                    ],
+                    options: [1.0, 1.0, 0.0, 1.0],
+                    ..Zeroable::zeroed()
+                };
+                outputs.insert(identity, (coverage.clone(), uniform));
+                (coverage, uniform)
+            };
+            source.coverage = Some(coverage);
+            source.masks = [
+                uniform,
+                MaskUniforms::zeroed(),
+                MaskUniforms::zeroed(),
+                MaskUniforms::zeroed(),
+            ];
+            source.count = 1;
+            source.materialized = false;
+            source.local_coverage = true;
+        }
+        if let Some(state) = state {
+            self.materialized_masks = Some(state);
+        }
+        Ok((resolved, metrics))
+    }
+    async fn materialize_mask(
+        &mut self,
+        source: &CompiledDrawState,
+        frame: RenderFrame,
+        cache: &mut mask::MaskState,
+        state: &mut MaterialMaskState,
+        uploads: &mut UploadMetrics,
+        textures: &mut HashSet<(u8, usize)>,
+    ) -> Result<(GpuImage, MaskCompositionMetrics), Error> {
+        // A source opacity mask is painted through the complete preceding
+        // coverage before its alpha is quantized. Keeping this ordered boundary
+        // avoids replacing original brush-mask drawing with two quantized masks.
+        if let Some(index) = source
+            .components
+            .iter()
+            .rposition(|c| matches!(c.mask, Mask::Source(_)))
+        {
+            let Mask::Source(mask) = &source.components[index].mask else {
+                unreachable!()
+            };
+            if source.components[index].operation != crate::mask::MaskOperation::Intersect {
+                return Err(Error::UnsupportedExecution);
+            }
+            let root = RenderFrame {
+                frame: frame.root,
+                origin: [0; 2],
+                ..frame
+            };
+            mask.scene()
+                .preflight_source_capture_devices(&self.device)?;
+            let placed = mask.scene().place_visual_page(
+                mask.transform(),
+                root.dpi_scale,
+                root.source.is_some_and(|f| f.suppress_cached_cleartype()),
+                1.0,
+                true,
+            )?;
+            let mut recording = Scene::default();
+            let mut metrics = MaskCompositionMetrics::default();
+            // Bind preceding analytic/sampled masks directly when admitted.
+            // Prequantizing an otherwise direct prefix would change source alpha.
+            for component in &source.components[..index] {
+                if let Some(edges) = component.source_clip {
+                    recording.push_retained_clip_edges(edges)?;
+                }
+                match component.operation {
+                    crate::mask::MaskOperation::Intersect => {
+                        recording.push_mask(component.mask.clone())?
+                    }
+                    crate::mask::MaskOperation::Difference => {
+                        recording.push_mask_difference(component.mask.clone())?
+                    }
+                }
+                if component.source_clip.is_some() {
+                    recording.pop_archive_coverage(crate::scene::CoverageKind::Clip, true)?;
+                }
+            }
+            if let Some(edges) = source.components[index].source_clip {
+                recording.push_retained_clip_edges(edges)?;
+            }
+            recording.append(&placed)?;
+            if source.components[index].source_clip.is_some() {
+                recording.pop_scope()?;
+            }
+            for _ in 0..index {
+                recording.pop_scope()?;
+            }
+            let (image, channel, capture_frame) = if mask.is_bounded_source() {
+                let prefix = CompiledDrawState {
+                    components: source.components[..=index].into(),
+                    ..Default::default()
+                };
+                // Original ResetStateForMaskCompilation resets opacity/blend,
+                // retaining the source compiler's current offscreen depth.
+                let capture_frame = super::bounded_mask::storage_bounds(&prefix, root).frame(root);
+                let (image, source_masks) = Box::pin(self.capture_bounded_mask_source(
+                    &recording,
+                    capture_frame,
+                    &mut state.bounded,
+                ))
+                .await?;
+                metrics.merge(source_masks)?;
+                if index + 1 == source.components.len()
+                    && capture_frame.origin == frame.origin
+                    && [capture_frame.width, capture_frame.height] == [frame.width, frame.height]
+                {
+                    return Ok((image, metrics));
+                }
+                (image, MaskChannel::Red, capture_frame)
+            } else {
+                let (capture, source_masks) =
+                    Box::pin(self.capture_mask_source(&recording, root)).await?;
+                metrics.merge(source_masks)?;
+                let source_metrics = capture.source_preparation_metrics();
+                metrics.merge(MaskCompositionMetrics {
+                    source_captures: 1,
+                    source_draws: capture.source_replay_metrics().draws,
+                    texture_bytes: capture.capture_bytes(),
+                    geometry_bytes: source_metrics.geometry_bytes,
+                    uniform_bytes: source_metrics.uniform_bytes,
+                    atlas_bytes: source_metrics.atlas_bytes,
+                    ..Default::default()
+                })?;
+                (capture.into_image(), MaskChannel::Alpha, root)
+            };
+            let mut components = Vec::with_capacity(source.components.len() - index);
+            components.push(crate::mask::MaskComponent {
+                mask: completed_source_mask(
+                    image,
+                    channel,
+                    capture_frame,
+                    self.device.limits().max_texture_dimension_2d,
+                )?,
+                operation: crate::mask::MaskOperation::Intersect,
+                source_clip: None,
+            });
+            components.extend_from_slice(&source.components[index + 1..]);
+            let tail = CompiledDrawState {
+                components: components.into(),
+                materialized: true,
+                ..Default::default()
+            };
+            let (image, tail_metrics) =
+                Box::pin(self.materialize_mask(&tail, frame, cache, state, uploads, textures))
+                    .await?;
+            metrics.merge(tail_metrics)?;
+            return Ok((image, metrics));
+        }
+        let size = [frame.width, frame.height];
+        let has_analytic = source.components.iter().any(|c| {
+            matches!(
+                c.mask,
+                Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::FrameAnalytic(_)
+            )
+        });
+        let pipeline = if has_analytic {
+            Some(state.coverage(&self.device).await?)
+        } else {
+            None
+        };
+        let scratch =
+            has_analytic.then(|| texture(&self.device, size, "ProGPU reusable analytic-mask node"));
+        let scratch_image = scratch
+            .as_ref()
+            .map(|t| GpuImage::from_texture(&self.device, t, ImageAlpha::Straight))
+            .transpose()?;
+        let mut inputs = Vec::new();
+        let mut producers = Vec::new();
+        let mut path_programs = Vec::new();
+        for component in source.components.iter() {
+            let mut path_program = None;
+            let (image, uniforms, sampling, producer) = match &component.mask {
+                Mask::Path(path) => {
+                    // Keep the exact original root-coordinate path/frame. Its
+                    // full-root R8 output is sampled at this actual child origin;
+                    // no completed coefficients or quantized path phase are rebased.
+                    let root_size = [frame.root.width, frame.root.height];
+                    let plan = crate::mask::ClipPlan::new(
+                        std::slice::from_ref(path),
+                        root_size,
+                        frame.dpi_scale,
+                    )?;
+                    state
+                        .composer
+                        .set_signed_winding_policy(self.signed_winding_policy);
+                    let prepared = state.composer.prepare_clip(&plan).await?;
+                    let image = prepared.image().clone();
+                    let uniforms = MaskUniforms {
+                        coordinate0: [
+                            -(frame.origin[0] as f32),
+                            -(frame.origin[1] as f32),
+                            0.0,
+                            0.0,
+                        ],
+                        coordinate1: [
+                            1.0 / root_size[0] as f32,
+                            1.0 / root_size[1] as f32,
+                            0.0,
+                            0.0,
+                        ],
+                        options: [1.0, 1.0, 0.0, 1.0],
+                        ..Zeroable::zeroed()
+                    };
+                    path_program = Some(prepared);
+                    (image, uniforms, MaskSampling::Nearest, None)
+                }
+                Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::FrameAnalytic(_) => {
+                    let direct =
+                        CompiledDrawState::direct(component.mask.clone(), frame.dpi_scale)?;
+                    let binding =
+                        cache.binding(&self.device, &self.queue, &direct, uploads, textures)?;
+                    let uniforms = MaskUniforms {
+                        coordinate1: [
+                            1.0 / frame.width as f32,
+                            1.0 / frame.height as f32,
+                            0.0,
+                            0.0,
+                        ],
+                        options: [1.0, 1.0, 0.0, 1.0],
+                        ..Zeroable::zeroed()
+                    };
+                    (
+                        scratch_image.as_ref().ok_or(Error::ResourceDomain)?.clone(),
+                        uniforms,
+                        MaskSampling::Nearest,
+                        Some(binding),
+                    )
+                }
+                Mask::RenderedTexture(mask) => (
+                    cache.image(
+                        &self.device,
+                        &self.queue,
+                        &mask.texture.source,
+                        uploads,
+                        textures,
+                    )?,
+                    mask.uniforms(frame.origin),
+                    mask.texture.sampling,
+                    None,
+                ),
+                _ => {
+                    let sampled = match &component.mask {
+                        Mask::Coverage(c) => c.clone().into(),
+                        Mask::Texture(c) => c.clone(),
+                        _ => unreachable!(),
+                    };
+                    let uniforms = sampled.uniforms_for_target(frame.dpi_scale, frame.origin)?;
+                    (
+                        cache.image(
+                            &self.device,
+                            &self.queue,
+                            &sampled.source,
+                            uploads,
+                            textures,
+                        )?,
+                        uniforms,
+                        sampled.sampling,
+                        None,
+                    )
+                }
+            };
+            inputs.push(SampledMaskInput {
+                image,
+                uniforms,
+                sampling,
+                operation: component.operation,
+            });
+            producers.push(producer);
+            path_programs.push(path_program);
+        }
+        let prepared = state.composer.prepare_sampled(&inputs, size).await?;
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let geometry = if let Some(pipeline) = &pipeline {
+            let mut vertices = advanced::quad(size, frame.dpi_scale, 1.0);
+            for vertex in &mut vertices {
+                vertex.position[0] += frame.origin[0] as f32 / frame.dpi_scale;
+                vertex.position[1] += frame.origin[1] as f32 / frame.dpi_scale;
+            }
+            let vertices = advanced::buffer(
+                &self.device,
+                "ProGPU mask coverage quad",
+                bytemuck::cast_slice(&vertices),
+                wgpu::BufferUsages::VERTEX,
+            );
+            let indices = advanced::buffer(
+                &self.device,
+                "ProGPU mask coverage indices",
+                bytemuck::cast_slice(&[0u32, 1, 2, 0, 2, 3]),
+                wgpu::BufferUsages::INDEX,
+            );
+            let frame = advanced::frame_binding(
+                &self.device,
+                pipeline,
+                frame.uniforms(self.device.limits().max_texture_dimension_2d)?,
+            );
+            let sampler = self.device.create_sampler(&Default::default());
+            let placeholder = cache.placeholder();
+            let image = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ProGPU unused coverage image"),
+                layout: &pipeline.get_bind_group_layout(1),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&placeholder),
+                    },
+                ],
+            });
+            Some((
+                vertices,
+                indices,
+                frame,
+                image,
+                scratch
+                    .as_ref()
+                    .ok_or(Error::ResourceDomain)?
+                    .create_view(&Default::default()),
+            ))
+        } else {
+            None
+        };
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("ProGPU bounded retained mask composition"),
+            });
+        for (index, producer) in producers.iter().enumerate() {
+            if let Some(path) = &path_programs[index] {
+                path.encode_owned(&mut encoder);
+            }
+            if let Some(binding) = producer {
+                let (vertices, indices, frame, image, view) =
+                    geometry.as_ref().ok_or(Error::ResourceDomain)?;
+                let mut pass = begin(&mut encoder, view);
+                pass.set_pipeline(pipeline.as_ref().ok_or(Error::ResourceDomain)?);
+                pass.set_bind_group(0, frame, &[]);
+                pass.set_bind_group(1, image, &[]);
+                pass.set_bind_group(2, binding, &[]);
+                pass.set_vertex_buffer(0, vertices.slice(..));
+                pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..6, 0, 0..1);
+            }
+            prepared.encode_sampled_step(&mut encoder, index)?;
+        }
+        let command = encoder.finish();
+        if let Some(error) = scope.pop().await {
+            return Err(error.into());
+        }
+        self.queue.submit([command]);
+        prepared.retain_submitted(&self.queue);
+        let mut metrics = prepared.metrics();
+        uploads.uniform_bytes += metrics.uniform_bytes;
+        for path in path_programs.iter().flatten() {
+            let source_metrics = path.metrics();
+            uploads.uniform_bytes += source_metrics.uniform_bytes;
+            uploads.geometry_bytes += source_metrics.geometry_bytes;
+            metrics.merge(source_metrics)?;
+        }
+        if let Some((vertices, indices, ..)) = &geometry {
+            let count = producers.iter().filter(|p| p.is_some()).count() as u32;
+            metrics.render_passes += count;
+            metrics.texture_bytes += u64::from(size[0]) * u64::from(size[1]);
+            metrics.uniform_bytes += 224 + u64::from(count) * 384;
+            metrics.geometry_bytes += vertices.size() + indices.size();
+            uploads.uniform_bytes += 224;
+            uploads.geometry_bytes += vertices.size() + indices.size();
+        }
+        Ok((prepared.into_image(), metrics))
+    }
+}
+fn texture(device: &wgpu::Device, size: [u32; 2], label: &str) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    })
+}
+fn begin<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+) -> wgpu::RenderPass<'a> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("ProGPU original mask source"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        ..Default::default()
+    })
+}
+
+fn mask_cost(
+    states: &[CompiledDrawState],
+    used: impl Iterator<Item = usize>,
+    frame: RenderFrame,
+    format: wgpu::TextureFormat,
+) -> Result<(u64, u32), Error> {
+    let mut identities = HashSet::new();
+    let mut bytes = 0u64;
+    let mut passes = 0u32;
+    for index in used {
+        let source = &states[index];
+        if !source.materialized || !frame.clip_intersects(source.clip) {
+            continue;
+        }
+        if !identities.insert(Arc::as_ptr(&source.components) as *const () as usize) {
+            continue;
+        }
+        // Resolve the same original geometry and solid-source contracts during
+        // admission; bounded sources must not inherit a full-root RGBA budget.
+        let maximum = frame.root.width.max(frame.root.height);
+        let normalized = resolve_geometry(source, frame, maximum)?;
+        let normalized =
+            super::bounded_mask::resolve_solid(&normalized, frame, maximum)?.unwrap_or(normalized);
+        let source = &normalized;
+        if !source.materialized {
+            continue;
+        }
+        let analytic = source
+            .components
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.mask,
+                    Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::FrameAnalytic(_)
+                )
+            })
+            .count();
+        let allocation = super::bounded_mask::storage_bounds(source, frame);
+        bytes = bytes
+            .checked_add(
+                u64::from(allocation.size[0])
+                    * u64::from(allocation.size[1])
+                    * (2 + u64::from(analytic != 0)),
+            )
+            .ok_or(Error::Capacity)?;
+        passes = passes
+            .checked_add((source.components.len() + analytic) as u32)
+            .ok_or(Error::Capacity)?;
+        for (component_index, component) in source.components.iter().enumerate() {
+            if matches!(&component.mask, Mask::Source(_) | Mask::Geometry(_)) {
+                let root = RenderFrame {
+                    frame: frame.root,
+                    origin: [0; 2],
+                    ..frame
+                };
+                let bounded =
+                    matches!(&component.mask, Mask::Source(mask) if mask.is_bounded_source());
+                let prefix = CompiledDrawState {
+                    components: source.components[..=component_index].into(),
+                    ..Default::default()
+                };
+                let allocation = if bounded {
+                    super::bounded_mask::storage_bounds(&prefix, root)
+                } else {
+                    super::bounded_mask::Bounds {
+                        origin: [0; 2],
+                        size: [frame.root.width, frame.root.height],
+                    }
+                };
+                let pixels = u64::from(allocation.size[0]) * u64::from(allocation.size[1]);
+                // Actual bounded R8 source or original full-root RGBA source,
+                // plus independently admitted prefix coverage accumulations.
+                bytes = bytes
+                    .checked_add(
+                        (if bounded {
+                            pixels
+                        } else {
+                            target_texture_bytes(format, allocation.size)?
+                        }) + pixels * 2,
+                    )
+                    .ok_or(Error::Capacity)?;
+                passes = passes
+                    .checked_add(source.components.len() as u32 + 1)
+                    .ok_or(Error::Capacity)?;
+            }
+            if let Mask::Path(path) = &component.mask {
+                let root_size = [frame.root.width, frame.root.height];
+                let plan = crate::mask::ClipPlan::new(
+                    std::slice::from_ref(path),
+                    root_size,
+                    frame.dpi_scale,
+                )?;
+                let path_bytes = u64::from(root_size[0])
+                    .checked_mul(u64::from(root_size[1]))
+                    .and_then(|v| v.checked_mul(3))
+                    .and_then(|v| v.checked_add(u64::from(plan.atlas_size()).pow(2)))
+                    .ok_or(Error::Capacity)?;
+                bytes = bytes.checked_add(path_bytes).ok_or(Error::Capacity)?;
+                passes = passes.checked_add(2).ok_or(Error::Capacity)?;
+            }
+        }
+        if bytes > 512 * 1024 * 1024 || passes > 16384 {
+            return Err(Error::Capacity);
+        }
+    }
+    Ok((bytes, passes))
+}
+
+fn completed_source_mask(
+    image: GpuImage,
+    channel: MaskChannel,
+    frame: RenderFrame,
+    limit: u32,
+) -> Result<Mask, Error> {
+    let size = image.size();
+    let mut texture = TextureMask::new(image, [0.0, 0.0, size[0] as f32, size[1] as f32], channel);
+    texture.sampling = MaskSampling::Nearest;
+    Ok(Mask::RenderedTexture(crate::mask::RenderedTextureMask {
+        texture,
+        storage_origin: frame.origin,
+        size: [frame.root.width, frame.root.height],
+        dpi: frame.dpi_scale,
+        projection: RenderFrame {
+            frame: frame.root,
+            origin: [0; 2],
+            ..frame
+        }
+        .uniforms(limit)?
+        .projection,
+        replaces_chain: true,
+    }))
+}
+
+fn resolve_geometry(
+    source: &CompiledDrawState,
+    frame: RenderFrame,
+    maximum: u32,
+) -> Result<CompiledDrawState, Error> {
+    if !source
+        .components
+        .iter()
+        .any(|c| matches!(c.mask, Mask::Geometry(_)))
+    {
+        return Ok(source.clone());
+    }
+    let mut result = CompiledDrawState {
+        clip: source.clip,
+        logical_clip: source.logical_clip,
+        blend: source.blend,
+        ..Default::default()
+    };
+    for component in source.components.iter() {
+        let Mask::Geometry(geometry) = &component.mask else {
+            result.append_mask_with_source_clip(
+                component.mask.clone(),
+                component.operation,
+                frame.dpi_scale,
+                component.source_clip,
+            )?;
+            continue;
+        };
+        let matrix = crate::vector::Matrix4::from_affine(geometry.transform);
+        if let Some([l, t, r, b]) = geometry.geometry.axis_aligned_rectangle_bounds()
+            && geometry.transform.0[1].abs() <= 0.0001
+            && geometry.transform.0[2].abs() <= 0.0001
+        {
+            let mut scene = Scene::default();
+            scene.push_visual_clip([l, t, r - l, b - t], matrix)?;
+            scene.pop_scope()?;
+            let (states, _) = scene.compile_states(frame.dpi_scale)?;
+            let clip = states
+                .get(1)
+                .and_then(|s| s.clip)
+                .ok_or(Error::ResourceDomain)?;
+            let logical = states
+                .get(1)
+                .and_then(|s| s.logical_clip)
+                .ok_or(Error::ResourceDomain)?;
+            result.logical_clip = Some(if let Some(old) = result.logical_clip {
+                [
+                    old[0].max(logical[0]),
+                    old[1].max(logical[1]),
+                    old[2].min(logical[2]),
+                    old[3].min(logical[3]),
+                ]
+            } else {
+                logical
+            });
+            result.clip = Some(if let Some(old) = result.clip {
+                [
+                    old[0].max(clip[0]),
+                    old[1].max(clip[1]),
+                    old[2].min(clip[2]),
+                    old[3].min(clip[3]),
+                ]
+            } else {
+                clip
+            });
+            continue;
+        }
+        let previous = result
+            .components
+            .iter()
+            .map(|v| v.mask.clone())
+            .collect::<Vec<_>>();
+        let canonical = if frame.mask_depth <= 1 {
+            visual::geometry::canonical(&geometry.geometry, matrix, frame, &previous, maximum)?
+        } else {
+            None
+        };
+        let mask = if let Some(mask) = canonical {
+            mask
+        } else {
+            let mut scene = Scene::default();
+            if let Some(path) = geometry.geometry.compile_raster_path()? {
+                scene.draw_path(crate::scene::PathDraw {
+                    path,
+                    transform: crate::geometry::Affine::IDENTITY,
+                    color: [1.0; 4],
+                    sampling: Default::default(),
+                })?;
+            }
+            let scene = Arc::new(scene);
+            Mask::Source(if let Some([l, t, r, b]) = geometry.geometry.bounds() {
+                crate::mask::SourceMask::bounded(scene, [l, t, r - l, b - t], matrix)?
+            } else {
+                crate::mask::SourceMask::bounded_full(scene, matrix)?
+            })
+        };
+        result.append_mask_with_source_clip(
+            mask,
+            component.operation,
+            frame.dpi_scale,
+            component.source_clip,
+        )?;
+    }
+    Ok(result)
+}

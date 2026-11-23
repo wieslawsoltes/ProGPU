@@ -1,0 +1,1330 @@
+{
+  "captured_utc": "2026-11-09T04:08:19.413357+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    81.52783203125,
+    42.751953125,
+    25.04931640625
+  ],
+  "method": "5 warmups + 40 rounds. Admission parses all original managed variation metadata and owns lazy glyph-cache slots; instance selection uses an already-parsed owner and freezes settings/normalized coordinates/HVAR scalars. Source SFNT ownership setup, fixture name callback construction, input transport and complete output serialization are untimed. Production allocations, Rust replacement drops and C# typed-delegate overhead remain timed; C# GC retains its original policy. Diagnostic baseline only; cold/warm gvar query throughput, complete TtfFont wrapper/cache, shaping and frame performance remain separate. Rust allocation counts are not instrumented.",
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "dotnet": ".NET SDK:\n Version:           10.0.403\n Commit:            5a2162bea6\n Workload version:  10.0.400-manifests.a00bebb6\n MSBuild version:   18.9.15+5a2162bea\n\nRuntime Environment:\n OS Name:     Mac OS X\n OS Version:  26.6\n OS Platform: Darwin\n RID:         osx-arm64\n Base Path:   /private/tmp/progpu-rust-dotnet/sdk/10.0.403/\n\n.NET workloads installed:\nThere are no installed workloads to display.\nConfigured to use workload sets when installing new manifests.\nNo workload sets are installed. Run \"dotnet workload restore\" to install a workload set.\n\nHost:\n  Version:      10.0.14\n  Architecture: arm64\n  Commit:       0427b9abbe\n\n.NET SDKs installed:\n  10.0.403 [/private/tmp/progpu-rust-dotnet/sdk]\n\n.NET runtimes installed:\n  Microsoft.AspNetCore.App 10.0.14 [/private/tmp/progpu-rust-dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.NETCore.App 10.0.14 [/private/tmp/progpu-rust-dotnet/shared/Microsoft.NETCore.App]\n\nOther architectures found:\n  None\n\nEnvironment variables:\n  Not set\n\nglobal.json file:\n  /Users/wieslawsoltes/GitHub/ProGPU/global.json\n\nLearn more:\n  https://aka.ms/dotnet/info\n\nDownload .NET:\n  https://aka.ms/dotnet/download",
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/managed_variations.rs": "0847ac56da4b571cbdbccd9f3948929b0179379aedb42fbe03df98178d9d3e89",
+    "src/ProGPU.Rust/src/font/managed_variations/parse.rs": "ce721b0a1fe0355f00a9c54c445db0757350f16319b9f295bc5e227fcec2b609",
+    "src/ProGPU.Rust/src/font/managed_variations/glyph.rs": "482f3cb27db9ff9e7e81170abafe958a44349edc5063a677d7a7ace4072a4848",
+    "src/ProGPU.Rust/src/font/layout/managed_variations.rs": "e0aa4bf32f8af8e0f7c523db2a6de70e33b1a074ac6d88c37a825ef804a37e42",
+    "src/ProGPU.Rust/src/font/item_variation.rs": "e395648fa4c5d2526b5205a153337fd1d26d2c6134e18e216cb0b5334ae06c5a",
+    "src/ProGPU.Rust/tests/managed_variations.cs": "4ac365d1db07c61da16bc18fed01f31015aea90492ee51330591289fa6cd353e",
+    "src/ProGPU.Rust/tests/support/managed_variations_fixture.rs": "76c720635060c62ad42da4c1721b02791c0c727df80793cc316fc0384fa08c9f",
+    "src/ProGPU.Rust/tests/support/managed_variation_replay.rs": "b393bf0f2a7cc45691f5e1ec30a4ec332fff19adf13abe1bcacade5960914195",
+    "src/ProGPU.Rust/tests/support/gpos_dispatch_fixture.rs": "091a2b413047a6ee570e730e2bab1d8d5c4cdaa00cdd5b7f58445af89bfa4265",
+    "src/ProGPU.Rust/examples/managed_variations_benchmark.rs": "86ce105082b2a92f6dc3ab5ee8ca4ac37d7193d4c86b4b759e47dcfa54aad7ac",
+    "src/ProGPU.Text/OpenTypeVariationData.cs": "c2a70bb774b663db4d396f5edf14d04a278f2d16d238cb455791e95a3f3b71b1",
+    "src/ProGPU.Text/TtfFont.Variations.cs": "318cae60429ea6f74da43bc1338b81b8c8dec2c94dde3da4ce750e705aec5035",
+    "eng/progpu-benchmark-rust-managed-variations.py": "4fd96d021bc46c098308d7c598e80405d82f573ca2936d54963d7d0bccf90a68"
+  },
+  "binary_sha256": {
+    "rust": "c8c1b49a4727014866a7ec6c7bfb120948ca5204bc36868538a066e1cd2316c8",
+    "managed_control": "0c831d2b2bd978b1c129548ecd33997607c5e761b6d9292253438bda355eebb7"
+  },
+  "inputs": [
+    {
+      "axes": 1,
+      "variant": 0,
+      "mode": "admission",
+      "input_sha256": "6fcc04f8adcceccf845b8a1924c986c059144c67556a12c1c0992276cd2f061e",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.5,
+            "execute_p99_us": 2.417
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 1.0,
+            "execute_p95_us": 16.25,
+            "execute_p99_us": 28.625,
+            "allocated_p50_bytes": 1440.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "dfe98fe1219db51278286f3ef0f51d6b0cac9528eb2957fd2eee27fe6a6f37b2"
+    },
+    {
+      "axes": 1,
+      "variant": 0,
+      "mode": "instance",
+      "input_sha256": "6fcc04f8adcceccf845b8a1924c986c059144c67556a12c1c0992276cd2f061e",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.375,
+            "execute_p95_us": 0.542,
+            "execute_p99_us": 1.792
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.208,
+            "execute_p95_us": 0.291,
+            "execute_p99_us": 0.584,
+            "allocated_p50_bytes": 272.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "dfe98fe1219db51278286f3ef0f51d6b0cac9528eb2957fd2eee27fe6a6f37b2"
+    },
+    {
+      "axes": 1,
+      "variant": 1,
+      "mode": "admission",
+      "input_sha256": "efcacc3d041f5181868b62db6141512543d144a4680cd47cb65d287cf1e08ca0",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.833,
+            "execute_p95_us": 1.875,
+            "execute_p99_us": 1.917
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.375,
+            "execute_p95_us": 5.875,
+            "execute_p99_us": 13.0,
+            "allocated_p50_bytes": 3520.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "984035df33d5221722e43d1e64a4e129b8e587061960a9141cb45204d02a5d03"
+    },
+    {
+      "axes": 1,
+      "variant": 1,
+      "mode": "instance",
+      "input_sha256": "efcacc3d041f5181868b62db6141512543d144a4680cd47cb65d287cf1e08ca0",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 1.333,
+            "execute_p99_us": 2.458
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.333,
+            "execute_p95_us": 0.667,
+            "execute_p99_us": 3.917,
+            "allocated_p50_bytes": 272.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "984035df33d5221722e43d1e64a4e129b8e587061960a9141cb45204d02a5d03"
+    },
+    {
+      "axes": 1,
+      "variant": 2,
+      "mode": "admission",
+      "input_sha256": "97bf868c3e4476accc3c30a540b7f9a4df4e112432cb26b7ea8dcda3d81b1c62",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.75,
+            "execute_p95_us": 1.834,
+            "execute_p99_us": 1.875
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.25,
+            "execute_p95_us": 3.458,
+            "execute_p99_us": 4.042,
+            "allocated_p50_bytes": 3520.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "44e5b4c6a4141a61df4ac47d7da680ce84613a6fc10498f622df71fd1e1f0972"
+    },
+    {
+      "axes": 1,
+      "variant": 2,
+      "mode": "instance",
+      "input_sha256": "97bf868c3e4476accc3c30a540b7f9a4df4e112432cb26b7ea8dcda3d81b1c62",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 1.292,
+            "execute_p99_us": 1.459
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.292,
+            "execute_p95_us": 0.458,
+            "execute_p99_us": 3.208,
+            "allocated_p50_bytes": 272.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "44e5b4c6a4141a61df4ac47d7da680ce84613a6fc10498f622df71fd1e1f0972"
+    },
+    {
+      "axes": 1,
+      "variant": 3,
+      "mode": "admission",
+      "input_sha256": "1ca7be4272a9b4acf857efc75506b8b601be0ca991a624dd69f6f79d111c2241",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.667,
+            "execute_p95_us": 1.709,
+            "execute_p99_us": 1.834
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 1.792,
+            "execute_p95_us": 2.959,
+            "execute_p99_us": 4.958,
+            "allocated_p50_bytes": 2712.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "5122259ec98a00e7cb0c505691d45bee0022dde1ac5a4e97c9c85e2cd26d9419"
+    },
+    {
+      "axes": 1,
+      "variant": 3,
+      "mode": "instance",
+      "input_sha256": "1ca7be4272a9b4acf857efc75506b8b601be0ca991a624dd69f6f79d111c2241",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.375,
+            "execute_p95_us": 0.417,
+            "execute_p99_us": 1.375
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.208,
+            "execute_p95_us": 0.583,
+            "execute_p99_us": 2.5,
+            "allocated_p50_bytes": 272.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "5122259ec98a00e7cb0c505691d45bee0022dde1ac5a4e97c9c85e2cd26d9419"
+    },
+    {
+      "axes": 1,
+      "variant": 4,
+      "mode": "admission",
+      "input_sha256": "1c84bfc2a7c7ba02cc5a90a201d9578255e960f946e0c5176e89e8343ddc5022",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.708,
+            "execute_p95_us": 1.708,
+            "execute_p99_us": 1.833
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 1.417,
+            "execute_p95_us": 2.625,
+            "execute_p99_us": 3.708,
+            "allocated_p50_bytes": 2280.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "cdaaa883575ad4ff1f8d444851712ee0fe662acb86b0bca208cb68030a7d3b12"
+    },
+    {
+      "axes": 1,
+      "variant": 4,
+      "mode": "instance",
+      "input_sha256": "1c84bfc2a7c7ba02cc5a90a201d9578255e960f946e0c5176e89e8343ddc5022",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.458,
+            "execute_p95_us": 1.25,
+            "execute_p99_us": 1.917
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.333,
+            "execute_p95_us": 0.375,
+            "execute_p99_us": 2.083,
+            "allocated_p50_bytes": 272.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "cdaaa883575ad4ff1f8d444851712ee0fe662acb86b0bca208cb68030a7d3b12"
+    },
+    {
+      "axes": 1,
+      "variant": 5,
+      "mode": "admission",
+      "input_sha256": "bc719f34d72741f5ec2b5a6616bff859a98e7b1b399ecb347b39ff188c86b88f",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.917,
+            "execute_p95_us": 1.834,
+            "execute_p99_us": 2.042
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.25,
+            "execute_p95_us": 3.625,
+            "execute_p99_us": 4.125,
+            "allocated_p50_bytes": 3560.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "cdaaa883575ad4ff1f8d444851712ee0fe662acb86b0bca208cb68030a7d3b12"
+    },
+    {
+      "axes": 1,
+      "variant": 5,
+      "mode": "instance",
+      "input_sha256": "bc719f34d72741f5ec2b5a6616bff859a98e7b1b399ecb347b39ff188c86b88f",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 1.166,
+            "execute_p99_us": 1.458
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.333,
+            "execute_p95_us": 0.417,
+            "execute_p99_us": 3.208,
+            "allocated_p50_bytes": 272.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "cdaaa883575ad4ff1f8d444851712ee0fe662acb86b0bca208cb68030a7d3b12"
+    },
+    {
+      "axes": 1,
+      "variant": 6,
+      "mode": "admission",
+      "input_sha256": "07c10aa1bbcf637ae53bc33dfba75712a9d56b1cc9418b98401557e0ddfa2347",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.791,
+            "execute_p95_us": 1.916,
+            "execute_p99_us": 2.083
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 1.792,
+            "execute_p95_us": 3.042,
+            "execute_p99_us": 3.5,
+            "allocated_p50_bytes": 2752.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "6cab42ecff5479b9a2f82acc3b384ffe92c38ae8553050739928f0c5321de0fc"
+    },
+    {
+      "axes": 1,
+      "variant": 6,
+      "mode": "instance",
+      "input_sha256": "07c10aa1bbcf637ae53bc33dfba75712a9d56b1cc9418b98401557e0ddfa2347",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.416,
+            "execute_p95_us": 1.375,
+            "execute_p99_us": 9.459
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.209,
+            "execute_p95_us": 0.584,
+            "execute_p99_us": 3.0,
+            "allocated_p50_bytes": 272.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "6cab42ecff5479b9a2f82acc3b384ffe92c38ae8553050739928f0c5321de0fc"
+    },
+    {
+      "axes": 1,
+      "variant": 7,
+      "mode": "admission",
+      "input_sha256": "d0e284f60ebc78b1ca42ea624214ea069e2ebbf6cd1d32d8bfd531a65ec6cf8c",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.958,
+            "execute_p95_us": 1.792,
+            "execute_p99_us": 2.041
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.333,
+            "execute_p95_us": 3.708,
+            "execute_p99_us": 4.208,
+            "allocated_p50_bytes": 3560.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "44e5b4c6a4141a61df4ac47d7da680ce84613a6fc10498f622df71fd1e1f0972"
+    },
+    {
+      "axes": 1,
+      "variant": 7,
+      "mode": "instance",
+      "input_sha256": "d0e284f60ebc78b1ca42ea624214ea069e2ebbf6cd1d32d8bfd531a65ec6cf8c",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 1.292,
+            "execute_p99_us": 1.917
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.292,
+            "execute_p95_us": 0.375,
+            "execute_p99_us": 3.167,
+            "allocated_p50_bytes": 272.0
+          }
+        }
+      ],
+      "exact_output_bytes": 160,
+      "output_sha256": "44e5b4c6a4141a61df4ac47d7da680ce84613a6fc10498f622df71fd1e1f0972"
+    },
+    {
+      "axes": 2,
+      "variant": 0,
+      "mode": "admission",
+      "input_sha256": "f82d4443438e4cd2ea4f10d0058c6e37e1bee1e2a099809850d8a9df813887e8",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.708,
+            "execute_p95_us": 1.792,
+            "execute_p99_us": 3.667
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 1.209,
+            "execute_p95_us": 2.584,
+            "execute_p99_us": 7.416,
+            "allocated_p50_bytes": 1712.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "79c1ceb43b7b6dc572755ed2b0d81732eedb2fd92112351493edfe98f03a9434"
+    },
+    {
+      "axes": 2,
+      "variant": 0,
+      "mode": "instance",
+      "input_sha256": "f82d4443438e4cd2ea4f10d0058c6e37e1bee1e2a099809850d8a9df813887e8",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 1.709,
+            "execute_p99_us": 1.916
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.292,
+            "execute_p95_us": 0.708,
+            "execute_p99_us": 2.042,
+            "allocated_p50_bytes": 296.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "79c1ceb43b7b6dc572755ed2b0d81732eedb2fd92112351493edfe98f03a9434"
+    },
+    {
+      "axes": 2,
+      "variant": 1,
+      "mode": "admission",
+      "input_sha256": "c30a29396c3808aa02334eb3d832379ba06e5579180004478ec475fe7abab638",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.084,
+            "execute_p95_us": 2.125,
+            "execute_p99_us": 2.417
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 3.083,
+            "execute_p95_us": 5.0,
+            "execute_p99_us": 5.458,
+            "allocated_p50_bytes": 3904.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "2e40db0325641e93325244e96417050404b19463c1bcd717275701c65ea3c789"
+    },
+    {
+      "axes": 2,
+      "variant": 1,
+      "mode": "instance",
+      "input_sha256": "c30a29396c3808aa02334eb3d832379ba06e5579180004478ec475fe7abab638",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.417,
+            "execute_p99_us": 1.75
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 0.542,
+            "execute_p99_us": 2.875,
+            "allocated_p50_bytes": 296.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "2e40db0325641e93325244e96417050404b19463c1bcd717275701c65ea3c789"
+    },
+    {
+      "axes": 2,
+      "variant": 2,
+      "mode": "admission",
+      "input_sha256": "feb9ef1e9b98e9eac5f330b28f5561ee575299bc733f7f1b2e0f58fa0444f57b",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.958,
+            "execute_p95_us": 1.75,
+            "execute_p99_us": 2.458
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.875,
+            "execute_p95_us": 4.542,
+            "execute_p99_us": 4.75,
+            "allocated_p50_bytes": 3904.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "c2424c09bc0f51e379f89e3387b36fb180861ca2b075341d1bae88b59544117a"
+    },
+    {
+      "axes": 2,
+      "variant": 2,
+      "mode": "instance",
+      "input_sha256": "feb9ef1e9b98e9eac5f330b28f5561ee575299bc733f7f1b2e0f58fa0444f57b",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.5,
+            "execute_p99_us": 2.25
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.416,
+            "execute_p95_us": 0.5,
+            "execute_p99_us": 3.166,
+            "allocated_p50_bytes": 296.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "c2424c09bc0f51e379f89e3387b36fb180861ca2b075341d1bae88b59544117a"
+    },
+    {
+      "axes": 2,
+      "variant": 3,
+      "mode": "admission",
+      "input_sha256": "664408d6aadde1deacb3db88ca8f87b10a17f21ec5c5d6e08f2832002768de97",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.875,
+            "execute_p95_us": 1.708,
+            "execute_p99_us": 2.042
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.084,
+            "execute_p95_us": 3.625,
+            "execute_p99_us": 3.833,
+            "allocated_p50_bytes": 3032.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "e537715d74e0dad1fe5182525e9bdb24cebf173d87bd0978bb4e4f8dd449be1f"
+    },
+    {
+      "axes": 2,
+      "variant": 3,
+      "mode": "instance",
+      "input_sha256": "664408d6aadde1deacb3db88ca8f87b10a17f21ec5c5d6e08f2832002768de97",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.458,
+            "execute_p95_us": 1.167,
+            "execute_p99_us": 2.25
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.333,
+            "execute_p95_us": 0.541,
+            "execute_p99_us": 3.625,
+            "allocated_p50_bytes": 296.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "e537715d74e0dad1fe5182525e9bdb24cebf173d87bd0978bb4e4f8dd449be1f"
+    },
+    {
+      "axes": 2,
+      "variant": 4,
+      "mode": "admission",
+      "input_sha256": "b681e0e72c044381167dfc60d86a47e8226e50aed9b79ccefa38d815d9b8e1ba",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.916,
+            "execute_p95_us": 1.875,
+            "execute_p99_us": 2.292
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.209,
+            "execute_p95_us": 3.584,
+            "execute_p99_us": 5.042,
+            "allocated_p50_bytes": 2608.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "1c4ebc77f3438563e1332d79ceb3d0919116f0f0973276ef398f06dd3b47ea9c"
+    },
+    {
+      "axes": 2,
+      "variant": 4,
+      "mode": "instance",
+      "input_sha256": "b681e0e72c044381167dfc60d86a47e8226e50aed9b79ccefa38d815d9b8e1ba",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.292,
+            "execute_p99_us": 1.625
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 0.875,
+            "execute_p99_us": 2.792,
+            "allocated_p50_bytes": 296.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "1c4ebc77f3438563e1332d79ceb3d0919116f0f0973276ef398f06dd3b47ea9c"
+    },
+    {
+      "axes": 2,
+      "variant": 5,
+      "mode": "admission",
+      "input_sha256": "4291ffdfd764bf79ad95b6951d905e8e972891dc1027b8e2e4773b4ed0e126aa",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.041,
+            "execute_p95_us": 1.958,
+            "execute_p99_us": 2.084
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.916,
+            "execute_p95_us": 4.625,
+            "execute_p99_us": 5.041,
+            "allocated_p50_bytes": 3944.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "c8a87bbece56b50c44e90c33a88eaa2eb47e2cf41c9131eb8b0f479005df8147"
+    },
+    {
+      "axes": 2,
+      "variant": 5,
+      "mode": "instance",
+      "input_sha256": "4291ffdfd764bf79ad95b6951d905e8e972891dc1027b8e2e4773b4ed0e126aa",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.459,
+            "execute_p95_us": 1.208,
+            "execute_p99_us": 1.792
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.459,
+            "execute_p95_us": 0.542,
+            "execute_p99_us": 3.042,
+            "allocated_p50_bytes": 296.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "c8a87bbece56b50c44e90c33a88eaa2eb47e2cf41c9131eb8b0f479005df8147"
+    },
+    {
+      "axes": 2,
+      "variant": 6,
+      "mode": "admission",
+      "input_sha256": "a07d77e9e5e97c1e7dee03d86b68bbeef57523e1c8a517a5d2cdaf780d727aa3",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.084,
+            "execute_p95_us": 1.875,
+            "execute_p99_us": 2.541
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.167,
+            "execute_p95_us": 3.583,
+            "execute_p99_us": 4.375,
+            "allocated_p50_bytes": 3080.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "7698e416845165ee1793f14c782f6a0bd2d504810a3170d8c5f528504f5d6437"
+    },
+    {
+      "axes": 2,
+      "variant": 6,
+      "mode": "instance",
+      "input_sha256": "a07d77e9e5e97c1e7dee03d86b68bbeef57523e1c8a517a5d2cdaf780d727aa3",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.333,
+            "execute_p99_us": 1.875
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.291,
+            "execute_p95_us": 0.375,
+            "execute_p99_us": 2.583,
+            "allocated_p50_bytes": 296.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "7698e416845165ee1793f14c782f6a0bd2d504810a3170d8c5f528504f5d6437"
+    },
+    {
+      "axes": 2,
+      "variant": 7,
+      "mode": "admission",
+      "input_sha256": "437fa183bac3f2f664a8afc36e40eddd09cda8a21d848215342a43388daba96f",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.041,
+            "execute_p95_us": 2.125,
+            "execute_p99_us": 2.708
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.792,
+            "execute_p95_us": 4.125,
+            "execute_p99_us": 4.334,
+            "allocated_p50_bytes": 3944.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "c2424c09bc0f51e379f89e3387b36fb180861ca2b075341d1bae88b59544117a"
+    },
+    {
+      "axes": 2,
+      "variant": 7,
+      "mode": "instance",
+      "input_sha256": "437fa183bac3f2f664a8afc36e40eddd09cda8a21d848215342a43388daba96f",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 1.583,
+            "execute_p99_us": 2.041
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.375,
+            "execute_p95_us": 0.583,
+            "execute_p99_us": 3.125,
+            "allocated_p50_bytes": 296.0
+          }
+        }
+      ],
+      "exact_output_bytes": 240,
+      "output_sha256": "c2424c09bc0f51e379f89e3387b36fb180861ca2b075341d1bae88b59544117a"
+    },
+    {
+      "axes": 3,
+      "variant": 0,
+      "mode": "admission",
+      "input_sha256": "9a0bee1df41f8108fc7223676c1ddeb291bc732a8e3ce59758984b4ece832120",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.833,
+            "execute_p95_us": 1.667,
+            "execute_p99_us": 2.292
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 1.459,
+            "execute_p95_us": 2.75,
+            "execute_p99_us": 3.459,
+            "allocated_p50_bytes": 2008.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "915ac654ca6a11817a50f47756388f51f81161bf810bd6a0fa945057b2dd12ae"
+    },
+    {
+      "axes": 3,
+      "variant": 0,
+      "mode": "instance",
+      "input_sha256": "9a0bee1df41f8108fc7223676c1ddeb291bc732a8e3ce59758984b4ece832120",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 1.542,
+            "execute_p99_us": 1.75
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.333,
+            "execute_p95_us": 0.708,
+            "execute_p99_us": 2.708,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "915ac654ca6a11817a50f47756388f51f81161bf810bd6a0fa945057b2dd12ae"
+    },
+    {
+      "axes": 3,
+      "variant": 1,
+      "mode": "admission",
+      "input_sha256": "f8f7cd7734eb16d32a0a49488feffca3bef6b67d1f5f2f43a0e0a60ac673cbf3",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.083,
+            "execute_p95_us": 2.0,
+            "execute_p99_us": 2.125
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 3.375,
+            "execute_p95_us": 4.625,
+            "execute_p99_us": 5.542,
+            "allocated_p50_bytes": 4424.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "df5f77b602ba228d6016e311ba451fc86ae2ca5b2773dac61c1669ae99ccd269"
+    },
+    {
+      "axes": 3,
+      "variant": 1,
+      "mode": "instance",
+      "input_sha256": "f8f7cd7734eb16d32a0a49488feffca3bef6b67d1f5f2f43a0e0a60ac673cbf3",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 1.583,
+            "execute_p99_us": 1.625
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.542,
+            "execute_p95_us": 0.75,
+            "execute_p99_us": 0.917,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "df5f77b602ba228d6016e311ba451fc86ae2ca5b2773dac61c1669ae99ccd269"
+    },
+    {
+      "axes": 3,
+      "variant": 2,
+      "mode": "admission",
+      "input_sha256": "6a5f0273caa166981a29771a731775038fee37d405b507c26f5609ffe62623ae",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.167,
+            "execute_p95_us": 2.041,
+            "execute_p99_us": 2.125
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 3.75,
+            "execute_p95_us": 5.167,
+            "execute_p99_us": 5.834,
+            "allocated_p50_bytes": 4416.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "95c5144990ad84b90be98af276df28280af01761b116803aa030c15eb384b626"
+    },
+    {
+      "axes": 3,
+      "variant": 2,
+      "mode": "instance",
+      "input_sha256": "6a5f0273caa166981a29771a731775038fee37d405b507c26f5609ffe62623ae",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 1.416,
+            "execute_p99_us": 1.667
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 0.667,
+            "execute_p99_us": 1.042,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "95c5144990ad84b90be98af276df28280af01761b116803aa030c15eb384b626"
+    },
+    {
+      "axes": 3,
+      "variant": 3,
+      "mode": "admission",
+      "input_sha256": "fce5424803275198b589b28a59daf0989bd46142a4e5928631328ea02537cf1d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.959,
+            "execute_p95_us": 1.833,
+            "execute_p99_us": 2.208
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.5,
+            "execute_p95_us": 3.792,
+            "execute_p99_us": 68.458,
+            "allocated_p50_bytes": 3440.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "63ce4630f2d5bb6a6a03169380fcf1b557b9f6ad6b6defa660e01fd92a2cadc0"
+    },
+    {
+      "axes": 3,
+      "variant": 3,
+      "mode": "instance",
+      "input_sha256": "fce5424803275198b589b28a59daf0989bd46142a4e5928631328ea02537cf1d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.416,
+            "execute_p99_us": 1.583
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 0.625,
+            "execute_p99_us": 5.0,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "63ce4630f2d5bb6a6a03169380fcf1b557b9f6ad6b6defa660e01fd92a2cadc0"
+    },
+    {
+      "axes": 3,
+      "variant": 4,
+      "mode": "admission",
+      "input_sha256": "b37494eac51ff664132a324a6a828bc57a40153d53c7fbb2c84233398d8274d6",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.084,
+            "execute_p95_us": 2.125,
+            "execute_p99_us": 2.417
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.667,
+            "execute_p95_us": 3.917,
+            "execute_p99_us": 4.083,
+            "allocated_p50_bytes": 3024.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "9ee24f211ab780c90d09a832b3cf4159393be596c2ddb6b750d3d4a487c6d99a"
+    },
+    {
+      "axes": 3,
+      "variant": 4,
+      "mode": "instance",
+      "input_sha256": "b37494eac51ff664132a324a6a828bc57a40153d53c7fbb2c84233398d8274d6",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 1.459,
+            "execute_p99_us": 1.708
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.542,
+            "execute_p95_us": 0.75,
+            "execute_p99_us": 3.625,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "9ee24f211ab780c90d09a832b3cf4159393be596c2ddb6b750d3d4a487c6d99a"
+    },
+    {
+      "axes": 3,
+      "variant": 5,
+      "mode": "admission",
+      "input_sha256": "c05337cf71b3496136d5873c224b83b9d5d24bdfba93a6fb9ca7138618b5c452",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.208,
+            "execute_p95_us": 2.25,
+            "execute_p99_us": 2.667
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 3.333,
+            "execute_p95_us": 4.708,
+            "execute_p99_us": 5.333,
+            "allocated_p50_bytes": 4472.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "bbca8416c88150c6b284facb6d4ea7cd6ada68899690adfc56118f34a2660540"
+    },
+    {
+      "axes": 3,
+      "variant": 5,
+      "mode": "instance",
+      "input_sha256": "c05337cf71b3496136d5873c224b83b9d5d24bdfba93a6fb9ca7138618b5c452",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 1.375,
+            "execute_p99_us": 2.333
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.542,
+            "execute_p95_us": 0.708,
+            "execute_p99_us": 0.958,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "bbca8416c88150c6b284facb6d4ea7cd6ada68899690adfc56118f34a2660540"
+    },
+    {
+      "axes": 3,
+      "variant": 6,
+      "mode": "admission",
+      "input_sha256": "97e673ecdc2e58ac11ed265d69a704790e99d3432352d86db1ff12b1ac55389f",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.041,
+            "execute_p95_us": 2.042,
+            "execute_p99_us": 2.125
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 2.583,
+            "execute_p95_us": 3.833,
+            "execute_p99_us": 4.417,
+            "allocated_p50_bytes": 3496.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "0cbdd29cde86a1f9c62f250aaf2722a7a2a86d897b67c0ad8ab9ebeae05b1d1d"
+    },
+    {
+      "axes": 3,
+      "variant": 6,
+      "mode": "instance",
+      "input_sha256": "97e673ecdc2e58ac11ed265d69a704790e99d3432352d86db1ff12b1ac55389f",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.542,
+            "execute_p95_us": 1.584,
+            "execute_p99_us": 1.792
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.333,
+            "execute_p95_us": 0.458,
+            "execute_p99_us": 3.417,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "0cbdd29cde86a1f9c62f250aaf2722a7a2a86d897b67c0ad8ab9ebeae05b1d1d"
+    },
+    {
+      "axes": 3,
+      "variant": 7,
+      "mode": "admission",
+      "input_sha256": "d2555db9a980d20bb080850e874caa9f675cc12af4719723013673ce67eda4ed",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.167,
+            "execute_p95_us": 2.167,
+            "execute_p99_us": 2.708
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 3.417,
+            "execute_p95_us": 4.792,
+            "execute_p99_us": 5.584,
+            "allocated_p50_bytes": 4464.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "95c5144990ad84b90be98af276df28280af01761b116803aa030c15eb384b626"
+    },
+    {
+      "axes": 3,
+      "variant": 7,
+      "mode": "instance",
+      "input_sha256": "d2555db9a980d20bb080850e874caa9f675cc12af4719723013673ce67eda4ed",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.458,
+            "execute_p95_us": 1.583,
+            "execute_p99_us": 2.416
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 0.792,
+            "execute_p99_us": 1.166,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 328,
+      "output_sha256": "95c5144990ad84b90be98af276df28280af01761b116803aa030c15eb384b626"
+    }
+  ],
+  "temporary_bytes_removed": 74133120
+}

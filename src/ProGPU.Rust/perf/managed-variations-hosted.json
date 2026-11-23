@@ -1,0 +1,44 @@
+{
+  "commit": "d4d56c4f9e5ea454709277f3dfca431e5ee70019",
+  "run_id": 42561079973,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42561079973",
+  "jobs": [
+    {
+      "id": 128977409105,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128977409289,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 128977409339,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128977409420,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 128977409446,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "browser": {
+    "original_gate": "passed",
+    "diagnostic": "skipped",
+    "variation_checks_per_dpr": 96,
+    "positioning_checks_per_dpr": 151
+  },
+  "scope": "Linux source job cancelled during managed GSUB; macOS cancelled. This run does not qualify the complete Linux source/package pipeline or resolve intermittent browser device loss."
+}

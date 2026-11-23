@@ -1,0 +1,16 @@
+{
+  "captured_utc": "2026-11-09T03:34:10.033140+00:00",
+  "cargo_clean": "Removed 24341 files, 3.3GiB total",
+  "temporary_package_bytes_removed": 567503240,
+  "temporary_benchmark_bytes_removed": 74136451,
+  "explicit_paths_removed": {
+    "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser": 2382925,
+    "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results": 147878,
+    "/tmp/progpu-add-positioning-controls.py": 6245,
+    "/tmp/progpu-add-positioning-browser.py": 4869,
+    "/tmp/progpu-add-positioning-benchmark.py": 6151,
+    "/tmp/progpu-rust-positioning-package.py": 1718
+  },
+  "additional_logical_bytes_removed": 644189477,
+  "scope": "Task-owned build, package, benchmark and browser output only. Dependency/tool caches preserved. Byte totals are logical and do not claim APFS physical space. Original source-oracle temporary directories retire via RAII. Final packaging verification artifacts are removed after verification."
+}

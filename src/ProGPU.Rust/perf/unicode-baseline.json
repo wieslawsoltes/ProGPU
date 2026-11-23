@@ -1,0 +1,260 @@
+{
+  "date": "2026-11-08",
+  "method": "5 warmups, 40 measured rounds; strict decode + script itemization + identical scalar/run hash; reusable output vectors, input construction and allocations excluded; measured serially after all compilation/tests completed",
+  "rust": "1.90.0 release",
+  "cpp": "Apple Clang 21.0.0 -std=c++20 -O2 -Wall -Wextra -Werror; unchanged defaults",
+  "binaries": {
+    "target/release/examples/unicode_benchmark": "df12b17b1ff8ca3611d67d2f6953380e9caf8c4f6333a5a968277d11a3c45dd2",
+    "/tmp/progpu-rust-unicode-native-benchmark": "13483fbee4564198766a4741c6388f72ea61d8a50d26438193fcdb1a5dffab76"
+  },
+  "inputs": [
+    {
+      "pattern": "ProGPU sample 123 ",
+      "encoding": "8",
+      "repeats": 1,
+      "sha256": "18f7b443d691d9dd3900a03d64b14ca448d1a486956424ee1ebd6b3c37e063fc",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 runs=1 checksum=18096395000920129479 round_us_p50=1.209 p95=1.250 p99=1.291",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 runs=1 checksum=18096395000920129479 round_us_p50=0.875 p95=0.917 p99=0.958",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": "ProGPU sample 123 ",
+      "encoding": "8",
+      "repeats": 256,
+      "sha256": "bd33897eaa0bffe0631c7fa0ff3acccc590320810dc2a7ffbb83b374663f260b",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 runs=1 checksum=16429275237609146465 round_us_p50=93.625 p95=97.583 p99=111.333",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 runs=1 checksum=16429275237609146465 round_us_p50=98.833 p95=106.333 p99=114.917",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": "ProGPU sample 123 ",
+      "encoding": "8",
+      "repeats": 4096,
+      "sha256": "2f7b33847e88ccc5d05d41ef7aafda28967db4d5adb51387da507719dc0b8460",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=73728 scalars=73728 runs=1 checksum=3642680527602355297 round_us_p50=1497.083 p95=1537.416 p99=1585.083",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=73728 scalars=73728 runs=1 checksum=3642680527602355297 round_us_p50=1514.334 p95=1589.667 p99=1635.541",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": "ProGPU sample 123 ",
+      "encoding": "16",
+      "repeats": 1,
+      "sha256": "3231b19fd64d992b96df980b2d2a1ee3e09389cb98cd19532f8a6d9598a872e1",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 runs=1 checksum=18096395000920129479 round_us_p50=0.375 p95=0.417 p99=0.417",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 runs=1 checksum=18096395000920129479 round_us_p50=0.334 p95=0.375 p99=0.375",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": "ProGPU sample 123 ",
+      "encoding": "16",
+      "repeats": 256,
+      "sha256": "f321ee6bcfb9c79c637ad027f815d19e699c7b20835e093fc474da1dd888c58a",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 runs=1 checksum=16429275237609146465 round_us_p50=96.583 p95=104.750 p99=159.542",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 runs=1 checksum=16429275237609146465 round_us_p50=93.125 p95=98.458 p99=108.458",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": "ProGPU sample 123 ",
+      "encoding": "16",
+      "repeats": 4096,
+      "sha256": "d207cf398eb27fcc2dcd211d5728043579b0e6b6aaaf6bd25bab569f1ee8c550",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=73728 scalars=73728 runs=1 checksum=3642680527602355297 round_us_p50=1514.833 p95=1582.833 p99=1589.458",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=73728 scalars=73728 runs=1 checksum=3642680527602355297 round_us_p50=1454.625 p95=1488.083 p99=1530.000",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": " Á العربية 日本語 😀 􏿿",
+      "encoding": "8",
+      "repeats": 1,
+      "sha256": "104f087fef28e819dde2d528e2be0c4895a1a91c9918d603d20f2183681953dd",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=39 scalars=19 runs=3 checksum=1379684724109810483 round_us_p50=0.500 p95=0.542 p99=0.542",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=39 scalars=19 runs=3 checksum=1379684724109810483 round_us_p50=0.542 p95=0.583 p99=0.584",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": " Á العربية 日本語 😀 􏿿",
+      "encoding": "8",
+      "repeats": 256,
+      "sha256": "1136331c46bda56b8796340b26244af34ca7dc4b8f4170377f4399f2b19dec8c",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=9984 scalars=4864 runs=768 checksum=9710594071108733707 round_us_p50=130.541 p95=138.583 p99=153.292",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=9984 scalars=4864 runs=768 checksum=9710594071108733707 round_us_p50=127.791 p95=133.459 p99=156.209",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": " Á العربية 日本語 😀 􏿿",
+      "encoding": "8",
+      "repeats": 4096,
+      "sha256": "212efe478127fd2753f594139b7257e50fa8357b94dd094cfcf66a0142ee876f",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=159744 scalars=77824 runs=12288 checksum=14718707719453316875 round_us_p50=2061.334 p95=2094.500 p99=2116.333",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=159744 scalars=77824 runs=12288 checksum=14718707719453316875 round_us_p50=2104.042 p95=2201.000 p99=2255.917",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": " Á العربية 日本語 😀 􏿿",
+      "encoding": "16",
+      "repeats": 1,
+      "sha256": "92d5df4def5bbe1da8942e05716940b4ed2dfe6df73ced5fde469ba0911bd8bb",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=19 runs=3 checksum=1661040929286295867 round_us_p50=0.542 p95=0.625 p99=0.667",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=19 runs=3 checksum=1661040929286295867 round_us_p50=0.458 p95=0.459 p99=0.500",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": " Á العربية 日本語 😀 􏿿",
+      "encoding": "16",
+      "repeats": 256,
+      "sha256": "f698d4f82bfff4345d44ad02e4af6f14ca6152ff643cac30e5d8fd75f55f5132",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=4864 runs=768 checksum=5683993678471342885 round_us_p50=129.750 p95=135.792 p99=141.417",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=4864 runs=768 checksum=5683993678471342885 round_us_p50=112.750 p95=117.792 p99=119.125",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "pattern": " Á العربية 日本語 😀 􏿿",
+      "encoding": "16",
+      "repeats": 4096,
+      "sha256": "4704a2137c47e6d89fee77af37a26bb7ea2229b7119354fc2825e3edaae939b1",
+      "runs": [
+        {
+          "binary": "target/release/examples/unicode_benchmark",
+          "exit": 0,
+          "output": "units=86016 scalars=77824 runs=12288 checksum=1331379099490268197 round_us_p50=2061.250 p95=2103.750 p99=2135.125",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-unicode-native-benchmark",
+          "exit": 0,
+          "output": "units=86016 scalars=77824 runs=12288 checksum=1331379099490268197 round_us_p50=1844.042 p95=1905.000 p99=1982.250",
+          "stderr": ""
+        }
+      ]
+    }
+  ],
+  "sources": {
+    "src/ProGPU.Rust/examples/unicode_benchmark.rs": "80df6e3c9d6173c1b5ca0bb721f4b139ba7661346ac2e4ee890555ea869458e6",
+    "src/ProGPU.Rust/tests/native_unicode_benchmark.cpp": "e6a6daf699ee8de6e6a2061cf6be3b3de5adc792314916bd3869b9d7d932391e",
+    "src/ProGPU.Rust/src/text/unicode.rs": "f82e8e9778c1ed34b4635c534217a3889cf379435bf57de80b8e12bcc2a6e8bd",
+    "src/ProGPU.Rust/src/text/unicode/properties.rs": "3392800386db86f98a9f88ed04c25929d69177f8df498271b00ec560abf556f0",
+    "src/ProGPU.Rust/src/text/unicode/data.rs": "bdd0838e0bbee2dbf077508ba26740e7772af23be689246d00939b990952867e",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode.cpp": "534f4879bdf4c0a8b77db3116e895a89c9eb780a7579387a91b04f7590f9889c"
+  }
+}

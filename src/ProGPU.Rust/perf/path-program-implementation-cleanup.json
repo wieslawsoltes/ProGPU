@@ -1,0 +1,32 @@
+{
+  "observed_utc": "2026-11-09T21:48:15.741128+00:00",
+  "previous_head": "9393eb4f5216edc74cd006a0fdf74755b1a9af6c",
+  "scope": "Owned obsolete duplicate external incremental directories; retain newest per crate and all modified within one hour; skip deletion while compilers are active",
+  "removed_incremental_directories": 3,
+  "removed_logical_bytes": 271983198,
+  "areas": {
+    "debug/incremental": {
+      "eligible_directories": 3,
+      "removed_directories": 3,
+      "removed_logical_bytes": 271983198
+    },
+    "wasm32-unknown-unknown/debug/incremental": {
+      "eligible_directories": 0,
+      "removed_directories": 0,
+      "removed_logical_bytes": 0
+    }
+  },
+  "cleanup_status": "completed",
+  "workflow": "User mandates completing all implementation before validation; latest code is unvalidated",
+  "validation": "Deferred; initial CPU compile before mandate failed on enum casing, corrected without rerun; formatting only after mandate",
+  "canonical_modules_included": 21,
+  "last_successful_shader_checkpoint": {
+    "commit": "9393eb4f5216edc74cd006a0fdf74755b1a9af6c",
+    "modules": 18
+  },
+  "new_runtime_benchmark_trace_package_artifacts": false,
+  "free_gib": {
+    "internal": 32.88,
+    "external": 213.28
+  }
+}

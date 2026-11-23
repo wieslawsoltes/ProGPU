@@ -1,0 +1,100 @@
+{
+  "commit": "85da8d7e81749c614253db04eb4cd3d5d4c7fe41",
+  "run_id": 42589721385,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42589721385",
+  "scope": "Terminal hosted joining checkpoint; cancelled macOS is not a pass. Subsequent fallback edits are not covered.",
+  "jobs": [
+    {
+      "id": 129068102885,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129068103163,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129068103190,
+      "name": "managed-text-source",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129068103259,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129068103378,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 129068103477,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "managed": {
+    "cases": 736501,
+    "exact_bytes": 896556060,
+    "profile": 151,
+    "browser_cases": 368,
+    "fixture_bytes": 351906
+  },
+  "browser": {
+    "checks_per_dpr": 1107,
+    "final_captures_completed": 2
+  },
+  "gpu": {
+    "tests_passed": 6,
+    "winit_frames": 4
+  },
+  "packages": {
+    "linux_files": 444,
+    "windows_files": 444
+  },
+  "evidence": [
+    {
+      "job_id": 129068102885,
+      "lines": [
+        "2026-11-09T09:01:37.2571405Z       \"managedScriptActionChecks\": 1107,",
+        "2026-11-09T09:01:37.2594197Z       \"captureCompleted\": true,",
+        "2026-11-09T09:01:37.2614814Z       \"managedScriptActionChecks\": 1107,",
+        "2026-11-09T09:01:37.2641885Z       \"captureCompleted\": true,"
+      ]
+    },
+    {
+      "job_id": 129068103163,
+      "lines": [
+        "2026-11-09T08:58:54.8407483Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.82s"
+      ]
+    },
+    {
+      "job_id": 129068103190,
+      "lines": [
+        "2026-11-09T08:59:19.0520184Z Observed original preparation normalization candidate: Unicode15_1",
+        "2026-11-09T08:59:41.7376324Z Observed original preparation normalization candidate: Unicode15_1",
+        "2026-11-09T08:59:42.6779999Z Original managed script actions: 736501 cases / 896556060 exact bytes; 368 browser cases / 351906 bytes"
+      ]
+    },
+    {
+      "job_id": 129068103259,
+      "lines": [
+        "2026-11-09T09:17:27.2462086Z     Packaged 444 files, 8.7MiB (1.5MiB compressed)"
+      ]
+    },
+    {
+      "job_id": 129068103477,
+      "lines": [
+        "2026-11-09T09:02:58.2561594Z     Packaged 444 files, 8.8MiB (1.5MiB compressed)\r"
+      ]
+    }
+  ]
+}

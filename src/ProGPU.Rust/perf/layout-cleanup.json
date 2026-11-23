@@ -1,0 +1,29 @@
+{
+  "captured_utc": "2026-11-08T23:23:09.314729+00:00",
+  "removed": [
+    {
+      "path": "/private/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-layout-package-f55xel2h",
+      "logical_bytes": 510730731
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/release/examples/layout_benchmark",
+      "logical_bytes": 463264
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/release/examples/layout_benchmark.d",
+      "logical_bytes": 4458
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/release/examples/layout_benchmark-cb00ea170326ca11",
+      "logical_bytes": 463264
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/release/examples/layout_benchmark-cb00ea170326ca11.d",
+      "logical_bytes": 328
+    }
+  ],
+  "automatic_benchmark_temporary_bytes": 74170999,
+  "total_measured_logical_bytes": 585833044,
+  "unmeasured_auto_cleanup": "Native and managed oracle fixtures/build directories and failed benchmark builds retired automatically",
+  "retained": "Compact receipts, current crate archive, active Cargo dependencies, .NET and wasm-bindgen toolchains, browser tools"
+}

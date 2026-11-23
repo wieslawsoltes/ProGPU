@@ -1,0 +1,299 @@
+{
+  "utc": "2026-11-09T10:11:00.380510+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "toolchain": "Rust/Cargo 1.90.0",
+  "scope": "Original prohibited-vowel insertion and exact pair-before-triple precedence. Complex syllable preparation/reordering, full stage orchestration, positioning initialization, paragraphs and GPU text remain incomplete.",
+  "tests": {
+    "native": {
+      "passed": 98,
+      "failed": 0,
+      "ignored": 51
+    },
+    "cpu": {
+      "passed": 96,
+      "failed": 0,
+      "ignored": 44
+    }
+  },
+  "original_managed": {
+    "runtime": ".NET 10.0.14 macOS 26.6.0",
+    "normalization_profile": 170,
+    "cases": 1064105,
+    "exact_bytes": 1150599296,
+    "prior_cases_retained": 914017,
+    "raw_property_queries": 1114113,
+    "raw_property_bytes": 13369356,
+    "browser_cases": 771,
+    "browser_bytes": 1012132,
+    "fixture_updated_in_final_run": false,
+    "fields": 31,
+    "native_frozen_profile_replays": 2313
+  },
+  "independent_specification_check": {
+    "constraints": 103,
+    "scripts": 16,
+    "matching_queries": 4863144,
+    "input_sha256": "4798fe3a4d4ddb4da66e8f3f44550a7d8ca328e3e3854730d9fe783397eae153",
+    "original_output_sha256": "059fd626ca2d3ae736ecc2d3965ca09fd11b8cd17b70e8c09fdffba6218b6fb5",
+    "generated_source_sha256": "5f3df8634c7fb473ef34001f07c780219453c7f980d121c15c7bc9e2252a1ce7"
+  },
+  "lints": {
+    "native": "pass",
+    "wasm": "pass",
+    "format": "pass",
+    "diff_whitespace": "pass"
+  },
+  "browser": {
+    "status": "passed",
+    "browser": "151.0.7922.34",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "headless": true,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache"
+    ],
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 2316,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 167,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "after": {
+          "frames": 177,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "errors": [],
+        "resized": {
+          "frames": 188,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 800,
+          "height": 559,
+          "dpi": 1
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 2316,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 58,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "after": {
+          "frames": 68,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "errors": [],
+        "resized": {
+          "frames": 75,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1600,
+          "height": 1118,
+          "dpi": 2
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      }
+    ]
+  },
+  "benchmark": {
+    "workloads": 20,
+    "trials": 3,
+    "complete_output": "matched",
+    "rust_lower_medians": 20,
+    "rust_higher_medians": 0,
+    "equal_at_reported_precision": 0,
+    "load_average": [
+      4.75048828125,
+      9.2802734375,
+      18.51904296875
+    ],
+    "limits": "New-feature baseline, not an optimization or allocation-event/end-to-end qualification. Earlier lookup, preparation and Arabic fallback gaps remain open."
+  },
+  "source_semantics": "Exact script spelling; existing pair shadows longer prefix; original source skip count; inserted constructor fields and final source cluster; zero font glyph remains inserted; no flag/ink/default-ignorable shortcut.",
+  "provenance": {
+    "source_method": "OpenTypeTextShaper.GlyphSubstitutionBuffer.ApplyVowelConstraints",
+    "data": "Public Microsoft USE invalid-cluster specification at d06068439ff23fff99bfd058a5ab44a43183ecd9 and Unicode 17 script facts, hash-pinned and independently verified against original public inventory and actual matcher. Foreign generated arrays are not read or transcribed.",
+    "license": "Original Microsoft MIT notice with normalized LF newlines; Unicode license retained.",
+    "audit": "New implementation and generation reviewed; branch-reachable provenance marker scan found only approved ProGPU geometry port marker."
+  },
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Text/UnicodeShapingProperties.cs": "bbbdea3396586e9764000dbd40c3a0f0d66ea79190b5b63c713468a0c9684c95",
+    "src/ProGPU.Rust/src/text/script_actions.rs": "b359d279cf51575503d4b02b96977acc8310782b98425ea6ede3c5c998127f97",
+    "src/ProGPU.Rust/src/text/script_actions/vowel.rs": "87706a6b7936f94eb52d824dec3823a3df3a46272872fd89f5997d7d1d841b76",
+    "src/ProGPU.Rust/src/text/script_actions/vowel_data.rs": "5f3df8634c7fb473ef34001f07c780219453c7f980d121c15c7bc9e2252a1ce7",
+    "src/ProGPU.Rust/tests/managed_script_actions.cs": "147c501fb4a3dad899b8107fb328549212d9a1423c89b4e0e69d78a0ca5a622c",
+    "src/ProGPU.Rust/tests/managed_script_actions.rs": "0d98897e771af3a063753053ca666f3718dacc7ad011dfcc922f84e500b88bbf",
+    "src/ProGPU.Rust/tests/support/managed_script_actions_replay.rs": "9e8457d9365fbec166f5bb8fd359c0401698060f7ee605f1cbce61a609548799",
+    "src/ProGPU.Rust/tests/support/managed_vowel_cases.rs": "8303245d9655927f7ae5cdc07d81536d90fa31a2fdf483542d6aa46e048d5f9d",
+    "src/ProGPU.Rust/tests/support/vowel_inventory.txt": "f24c9b0fccb7eec6f4550d18ad17c21d689bf933c170d2bf6e7b34d7eab9a0ec",
+    "src/ProGPU.Rust/tests/managed_vowel_facts.cs": "c812ab8749535fd907eac85c790d69796aaf1b579276d0e0c23bc8cdbd72ccb8",
+    "src/ProGPU.Rust/browser/managed-script-actions.bin": "d789aa9bba980e2c1e4d890c1100bd40b09ab15ef092763171785d36d21f0237",
+    "eng/progpu-generate-rust-vowels.py": "46777ad7e98d7d1c68db1a58d17f025d7e59fd6edf1215eaeefea7390fb08c72",
+    "eng/progpu-benchmark-rust-script-actions.py": "dc5a7dbe9c5d4a74f36d8ff9f73dd6671778f84a8252c321cf4aa481537a4c74",
+    ".github/workflows/rust.yml": "2a229335e00ca3a41c23ad28265ede99084b4877a7857edc713425f7498ecd61",
+    "src/ProGPU.Rust/MICROSOFT-FONT-TOOLS-LICENSE.txt": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+  }
+}

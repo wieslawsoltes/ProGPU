@@ -1,0 +1,421 @@
+{
+  "instrument": "Xcode Instruments Time Profiler",
+  "workload": "SFNSMono face 0; every glyph; explicit normalized coordinates [8192,8192]; prepared advance and optional LSB; 100000 checksum-checked profile rounds",
+  "font_sha256": "55caaed55254a28ac793847e8976be16c5ba7cbad1ec2ee2d5d86d4e6b3fa0c1",
+  "samples": {
+    "before": {
+      "sample_count": 2576,
+      "frames": [
+        {
+          "name": "progpu::font::horizontal::base_advance::h7ad6e1e528e8980f",
+          "leaf_samples": 1461,
+          "inclusive_samples": 1711
+        },
+        {
+          "name": "progpu::font::item_variation::ItemVariationStore::delta_with_scalars::h844a5d8bc85628b5",
+          "leaf_samples": 389,
+          "inclusive_samples": 389
+        },
+        {
+          "name": "progpu::font::horizontal::HorizontalAdvanceInstance::design_advance_width::h82a5d1dcd00a87d4",
+          "leaf_samples": 284,
+          "inclusive_samples": 2384
+        },
+        {
+          "name": "progpu::font::SfntFace::horizontal_glyph_metrics::h1fbe76176ef236c3",
+          "leaf_samples": 250,
+          "inclusive_samples": 250
+        },
+        {
+          "name": "metrics_benchmark::run::hc7b5a142a2affa4e",
+          "leaf_samples": 99,
+          "inclusive_samples": 2495
+        },
+        {
+          "name": "progpu::font::horizontal::HorizontalMetricsInstance::left_side_bearing_variation::hcd69f92d2f9e5e70",
+          "leaf_samples": 91,
+          "inclusive_samples": 91
+        },
+        {
+          "name": "dyld4::PrebuiltLoader::dependent(dyld4::RuntimeState const&, unsigned int, mach_o::LinkedDylibAttributes*) const",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "__proc_info",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "start",
+          "leaf_samples": 0,
+          "inclusive_samples": 2576
+        },
+        {
+          "name": "std::rt::lang_start_internal::hdb28e94b6865fa11",
+          "leaf_samples": 0,
+          "inclusive_samples": 2574
+        },
+        {
+          "name": "metrics_benchmark::main::h994478c09eb0e972",
+          "leaf_samples": 0,
+          "inclusive_samples": 2574
+        },
+        {
+          "name": "std::sys::backtrace::__rust_begin_short_backtrace::hf197e90a25bba92b",
+          "leaf_samples": 0,
+          "inclusive_samples": 2574
+        },
+        {
+          "name": "std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::hfde96875c1b223ac",
+          "leaf_samples": 0,
+          "inclusive_samples": 2574
+        },
+        {
+          "name": "main",
+          "leaf_samples": 0,
+          "inclusive_samples": 2574
+        },
+        {
+          "name": "dyld4::prepare(dyld4::APIs&, mach_o::UnsafeHeader const*)",
+          "leaf_samples": 0,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "dyld4::PrebuiltLoader::loadDependents(Diagnostics&, dyld4::RuntimeState&, dyld4::Loader::LoadOptions const&)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::JustInTimeLoader::loadDependents(Diagnostics&, dyld4::RuntimeState&, dyld4::Loader::LoadOptions const&)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_xpc_proc_bsdinfo",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_xpc_early_init",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::PrebuiltLoader::runInitializers(dyld4::RuntimeState&) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_xpc_is_being_debugged",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::findAndRunAllInitializers(dyld4::RuntimeState&) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld4::Loader::findAndRunAllInitializers(dyld4::RuntimeState&) const::$_0::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_xpc_pid_is_being_debugged",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::UnsafeHeader::forEachSection(void (mach_o::UnsafeHeader::SectionInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::UnsafeHeader::forEachLoadCommand(void (load_command const*, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::APIs::runAllInitializersForMain()",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOAnalyzer::forEachInitializer(Diagnostics&, dyld3::MachOAnalyzer::VMAddrConverter const&, void (unsigned int) block_pointer, void const*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld3::MachOAnalyzer::forEachInitializer(Diagnostics&, dyld3::MachOAnalyzer::VMAddrConverter const&, void (unsigned int) block_pointer, void const*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "libSystem_initializer",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_libxpc_initializer",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in mach_o::UnsafeHeader::forEachSection(void (mach_o::UnsafeHeader::SectionInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        }
+      ],
+      "binary_sha256": "05542728271928086973249b2eaf025abf25a3f8518dd9a39e24078602cbaf71"
+    },
+    "native": {
+      "sample_count": 2506,
+      "frames": [
+        {
+          "name": "run(progpu::native::text::sfnt_font_view const&, unsigned short, std::__1::vector<short, std::__1::allocator<short>> const&, progpu::native::text::sfnt_horizontal_metrics_variation_instance const&)",
+          "leaf_samples": 498,
+          "inclusive_samples": 2389
+        },
+        {
+          "name": "progpu::native::text::sfnt_font_view::try_get_table(progpu::native::text::open_type_tag, progpu::native::text::sfnt_table_view&) const",
+          "leaf_samples": 449,
+          "inclusive_samples": 449
+        },
+        {
+          "name": "progpu::native::text::sfnt_font_view::try_get_design_advance_width(unsigned short, std::__1::span<short const, 18446744073709551615ul>, progpu::native::text::sfnt_horizontal_advance_variation_instance const*, float&, progpu::native::text::sfnt_glyph_phantom_variation_scratch, progpu::native::text::font_error*) const",
+          "leaf_samples": 301,
+          "inclusive_samples": 1702
+        },
+        {
+          "name": "progpu::native::text::sfnt_font_view::try_get_horizontal_header_metrics(progpu::native::text::sfnt_horizontal_header_metrics&) const",
+          "leaf_samples": 274,
+          "inclusive_samples": 274
+        },
+        {
+          "name": "progpu::native::text::sfnt_item_variation_data::try_get_delta(progpu::native::text::sfnt_item_variation_store_view, std::__1::span<float const, 18446744073709551615ul>, unsigned short, unsigned short, float&, progpu::native::text::font_error*)",
+          "leaf_samples": 253,
+          "inclusive_samples": 253
+        },
+        {
+          "name": "progpu::native::text::(anonymous namespace)::try_get_advance_variation_delta(progpu::native::text::sfnt_font_view const&, unsigned short, std::__1::span<short const, 18446744073709551615ul>, progpu::native::text::sfnt_horizontal_advance_variation_instance const*, float&, bool&, progpu::native::text::font_error*)",
+          "leaf_samples": 220,
+          "inclusive_samples": 473
+        },
+        {
+          "name": "progpu::native::text::sfnt_font_view::try_get_horizontal_left_side_bearing_variation(unsigned short, progpu::native::text::sfnt_horizontal_metrics_variation_instance const&, float&, bool&, progpu::native::text::font_error*) const",
+          "leaf_samples": 207,
+          "inclusive_samples": 207
+        },
+        {
+          "name": "progpu::native::text::sfnt_font_view::try_get_horizontal_glyph_metrics(unsigned short, progpu::native::text::sfnt_horizontal_glyph_metrics&) const",
+          "leaf_samples": 177,
+          "inclusive_samples": 177
+        },
+        {
+          "name": "progpu::native::text::(anonymous namespace)::try_get_base_advance_width(progpu::native::text::sfnt_font_view const&, unsigned short, float&, progpu::native::text::font_error*)",
+          "leaf_samples": 126,
+          "inclusive_samples": 1026
+        },
+        {
+          "name": "dyld3::MachOFile::forEachChainedFixupTarget(Diagnostics&, dyld_chained_fixups_header const*, linkedit_data_command const*, void (int, char const*, unsigned long long, bool, bool&) block_pointer)",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "start",
+          "leaf_samples": 0,
+          "inclusive_samples": 2506
+        },
+        {
+          "name": "main",
+          "leaf_samples": 0,
+          "inclusive_samples": 2505
+        },
+        {
+          "name": "dyld4::prepare(dyld4::APIs&, mach_o::UnsafeHeader const*)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::JustInTimeLoader::applyFixups(Diagnostics&, dyld4::RuntimeState&, dyld4::DyldCacheDataConstLazyScopedWriter&, bool, lsl::Vector<std::__1::pair<dyld4::Loader const*, char const*>>*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::forEachBindTarget(Diagnostics&, dyld4::RuntimeState&, void (unsigned int, unsigned int, dyld4::Loader::ResolvedSymbol const&) block_pointer, bool, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::Fixups::forEachBindTarget_ChainedFixups(Diagnostics&, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOAnalyzer::withVMLayout(Diagnostics&, void (mach_o::Layout const&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld4::Loader::forEachBindTarget(Diagnostics&, dyld4::RuntimeState&, void (unsigned int, unsigned int, dyld4::Loader::ResolvedSymbol const&) block_pointer, bool, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        }
+      ],
+      "binary_sha256": "bab5894ed814945af0acdd1692c01730f640c57dbc659664f804c6b5a1ac58c9"
+    },
+    "after": {
+      "sample_count": 1104,
+      "frames": [
+        {
+          "name": "progpu::font::horizontal::HorizontalAdvanceInstance::design_advance_width::h26b0c79a9f127d88",
+          "leaf_samples": 449,
+          "inclusive_samples": 851
+        },
+        {
+          "name": "progpu::font::item_variation::ItemVariationStore::delta_with_scalars::h844a5d8bc85628b5",
+          "leaf_samples": 402,
+          "inclusive_samples": 402
+        },
+        {
+          "name": "metrics_benchmark::run::hc7b5a142a2affa4e",
+          "leaf_samples": 159,
+          "inclusive_samples": 1010
+        },
+        {
+          "name": "progpu::font::horizontal::HorizontalMetricsInstance::left_side_bearing_variation::h82723e25e1ccb6b8",
+          "leaf_samples": 91,
+          "inclusive_samples": 91
+        },
+        {
+          "name": "dyld4::JustInTimeLoader::loadDependents(Diagnostics&, dyld4::RuntimeState&, dyld4::Loader::LoadOptions const&)",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Atlas::Mapper::~Mapper()",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_platform_memmove",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "start",
+          "leaf_samples": 0,
+          "inclusive_samples": 1104
+        },
+        {
+          "name": "main",
+          "leaf_samples": 0,
+          "inclusive_samples": 1102
+        },
+        {
+          "name": "metrics_benchmark::main::h994478c09eb0e972",
+          "leaf_samples": 0,
+          "inclusive_samples": 1102
+        },
+        {
+          "name": "std::sys::backtrace::__rust_begin_short_backtrace::hf197e90a25bba92b",
+          "leaf_samples": 0,
+          "inclusive_samples": 1102
+        },
+        {
+          "name": "std::rt::lang_start_internal::hdb28e94b6865fa11",
+          "leaf_samples": 0,
+          "inclusive_samples": 1102
+        },
+        {
+          "name": "std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::hfde96875c1b223ac",
+          "leaf_samples": 0,
+          "inclusive_samples": 1102
+        },
+        {
+          "name": "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "dyld4::ExternallyViewableState::addImages(lsl::Allocator&, lsl::Allocator&, std::__1::span<dyld4::ExternallyViewableState::ImageInfo, 18446744073709551615ul> const&)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::RuntimeState::notifyDebuggerLoad(std::__1::span<dyld4::Loader const*, 18446744073709551615ul> const&)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::prepare(dyld4::APIs&, mach_o::UnsafeHeader const*)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "lsl::BTree<lsl::UniquePtr<dyld4::Atlas::Image>, std::__1::less<lsl::UniquePtr<dyld4::Atlas::Image>>, false>::NodeCore<31u, 15u>::deallocate(lsl::BTree<lsl::UniquePtr<dyld4::Atlas::Image>, std::__1::less<lsl::UniquePtr<dyld4::Atlas::Image>>, false>::NodeCore<31u, 15u>*, lsl::Allocator*)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "lsl::UniquePtr<dyld4::Atlas::Image>::~UniquePtr()",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::ExternallyViewableState::generateAtlas(lsl::Allocator&)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::ExternallyViewableState::generateCompactInfo(lsl::Allocator&, AAREncoder&)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        }
+      ],
+      "binary_sha256": "a4f49ece2b1106a07f28d49ed54b3affa3d110763e4a57228c5510cadd50a4fb"
+    }
+  },
+  "limits": "Statistical CPU samples; no allocation/GPU/platform qualification. The uninstrumented before/after benchmark uses the same inactive profile-mode harness. Original C++ defaults are unchanged.",
+  "timing_observations": {
+    "initial": [
+      "/System/Library/Fonts/SFNSMono.ttf | target/release/examples/metrics_benchmark | exit=0 | glyphs=1632 axes=2 regions=2 hvar=true checksum=971861562991243685 round_us_p50=69.417 p95=76.000 p99=88.125 ",
+      "/System/Library/Fonts/SFNSMono.ttf | /tmp/progpu-rust-hvar-native-benchmark | exit=0 | glyphs=1632 axes=2 regions=2 hvar=true checksum=971861562991243685 round_us_p50=57.750 p95=63.125 p99=118.834 ",
+      "/System/Library/Fonts/NewYork.ttf | target/release/examples/metrics_benchmark | exit=0 | glyphs=1811 axes=3 regions=5 hvar=true checksum=719888288547038463 round_us_p50=48.292 p95=123.083 p99=129.375 ",
+      "/System/Library/Fonts/NewYork.ttf | /tmp/progpu-rust-hvar-native-benchmark | exit=0 | glyphs=1811 axes=3 regions=5 hvar=true checksum=719888288547038463 round_us_p50=46.041 p95=49.416 p99=53.375 "
+    ],
+    "first_matched": [
+      "/System/Library/Fonts/SFNSMono.ttf | /tmp/progpu-rust-hvar-before | exit=0 | glyphs=1632 axes=2 regions=2 hvar=true checksum=971861562991243685 round_us_p50=25.542 p95=25.667 p99=25.833 ",
+      "/System/Library/Fonts/SFNSMono.ttf | target/release/examples/metrics_benchmark | exit=0 | glyphs=1632 axes=2 regions=2 hvar=true checksum=971861562991243685 round_us_p50=11.333 p95=12.750 p99=108.375 ",
+      "/System/Library/Fonts/SFNSMono.ttf | /tmp/progpu-rust-hvar-native-benchmark | exit=0 | glyphs=1632 axes=2 regions=2 hvar=true checksum=971861562991243685 round_us_p50=26.291 p95=26.334 p99=26.375 ",
+      "/System/Library/Fonts/NewYork.ttf | /tmp/progpu-rust-hvar-before | exit=0 | glyphs=1811 axes=3 regions=5 hvar=true checksum=719888288547038463 round_us_p50=48.750 p95=49.750 p99=129.959 ",
+      "/System/Library/Fonts/NewYork.ttf | target/release/examples/metrics_benchmark | exit=0 | glyphs=1811 axes=3 regions=5 hvar=true checksum=719888288547038463 round_us_p50=25.250 p95=26.084 p99=26.334 ",
+      "/System/Library/Fonts/NewYork.ttf | /tmp/progpu-rust-hvar-native-benchmark | exit=0 | glyphs=1811 axes=3 regions=5 hvar=true checksum=719888288547038463 round_us_p50=45.292 p95=45.958 p99=48.583 "
+    ],
+    "final_matched": [
+      "/System/Library/Fonts/SFNSMono.ttf | /tmp/progpu-rust-hvar-before | exit=0 | glyphs=1632 axes=2 regions=2 hvar=true checksum=971861562991243685 round_us_p50=25.834 p95=60.291 p99=106.791 ",
+      "/System/Library/Fonts/SFNSMono.ttf | target/release/examples/metrics_benchmark | exit=0 | glyphs=1632 axes=2 regions=2 hvar=true checksum=971861562991243685 round_us_p50=11.166 p95=11.291 p99=11.333 ",
+      "/System/Library/Fonts/SFNSMono.ttf | /tmp/progpu-rust-hvar-native-benchmark | exit=0 | glyphs=1632 axes=2 regions=2 hvar=true checksum=971861562991243685 round_us_p50=25.458 p95=25.667 p99=28.791 ",
+      "/System/Library/Fonts/NewYork.ttf | /tmp/progpu-rust-hvar-before | exit=0 | glyphs=1811 axes=3 regions=5 hvar=true checksum=719888288547038463 round_us_p50=48.292 p95=55.958 p99=72.042 ",
+      "/System/Library/Fonts/NewYork.ttf | target/release/examples/metrics_benchmark | exit=0 | glyphs=1811 axes=3 regions=5 hvar=true checksum=719888288547038463 round_us_p50=25.583 p95=29.833 p99=33.916 ",
+      "/System/Library/Fonts/NewYork.ttf | /tmp/progpu-rust-hvar-native-benchmark | exit=0 | glyphs=1811 axes=3 regions=5 hvar=true checksum=719888288547038463 round_us_p50=44.875 p95=46.125 p99=47.833 "
+    ]
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/horizontal.rs": "07b4cbceb07221ddc43b775473fa99fed182c24e712146cfddaf37cd6b2d2a8e",
+    "src/ProGPU.Rust/examples/metrics_benchmark.rs": "06060c83f5154aee15e05b36f6f8a611bd046626de44bee21e5f5cb168a7a2ce",
+    "src/ProGPU.Rust/tests/native_metrics_benchmark.cpp": "d62587f2a9a3a9563c79a585f7b56321c90a5d7d4f689fcd24e837ce34a0c8a9"
+  },
+  "second_font_sha256": "296ac5e08bea4da51b7c46eb9647f69be0f56077a9c35b4bc9f433d7e8734771"
+}

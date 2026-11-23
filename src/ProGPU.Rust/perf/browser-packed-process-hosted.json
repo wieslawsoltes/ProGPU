@@ -1,0 +1,44 @@
+{
+  "utc": "2026-11-09 12:37:06 UTC",
+  "run_id": 42615381829,
+  "head": "fef3a3d958e1583951b2ed00c6f4bf3d4bc35a4b",
+  "jobs": [
+    {
+      "id": 129153965795,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129153966085,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129153966173,
+      "name": "managed-text-source",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129153966218,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129153966366,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129153966402,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    }
+  ],
+  "qualification": "Original source, browser, GPU/winit and Linux/Windows package gates passed. macOS cancelled. Original browser reliability failures remain unresolved; the failure-only observer was not needed by this passing run."
+}

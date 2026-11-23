@@ -1,0 +1,51 @@
+{
+  "commit": "deaf86ae6870fdbbe53e5a5978155e5525d90315",
+  "run_id": 42554514158,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42554514158",
+  "jobs": [
+    {
+      "id": 128957133488,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 128957133750,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128957133783,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128957133785,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128957133881,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    }
+  ],
+  "original_managed_gpos": {
+    "cases": 63557,
+    "exact_bytes": 72241212
+  },
+  "package_files": 304,
+  "browser": {
+    "original_gate": "failure",
+    "diagnostic_retry": "failure",
+    "stage": "final DPR 2 capture after verified resize",
+    "gpu_process_exit_code": 512,
+    "device_loss": "Unknown: A valid external Instance reference no longer exists.",
+    "original_flags_and_deadlines": "unchanged"
+  },
+  "scope": "Prior raw GPOS commit. Current complete positioning changes need independent validation. Browser intermittency, cancelled macOS and full source/application/provider/package gates remain open."
+}

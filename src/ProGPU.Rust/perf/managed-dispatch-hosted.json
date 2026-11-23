@@ -1,0 +1,57 @@
+{
+  "commit": "b38ce35393892ed3b6ef906c856d923cc8a11234",
+  "run_id": 42552654605,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42552654605",
+  "jobs": [
+    {
+      "id": 128951431806,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128951431996,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 128951432091,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128951432175,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128951432244,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "browser": {
+    "original_gate": "pass",
+    "diagnostic": "skipped",
+    "managed_dispatch_checks_per_dpr": 145,
+    "managed_gsub_checks_per_dpr": 44,
+    "native_gsub_checks_per_dpr": 37,
+    "offscreen_pixels": 204800,
+    "actual_presentation_dprs": [
+      1,
+      2
+    ]
+  },
+  "scope": "Preceding managed stage-dispatch commit. This does not qualify the new raw GPOS checkpoint; macOS was cancelled. Original browser intermittency and full source/application/provider/pixel gates remain open.",
+  "original_managed_stage": {
+    "feature_queries": 262144,
+    "stage_filters": 1974,
+    "full_stages": 26753,
+    "exact_bytes": 46818828
+  },
+  "package_files": 290
+}

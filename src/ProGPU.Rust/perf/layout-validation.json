@@ -1,0 +1,55 @@
+{
+  "captured_utc": "2026-11-08T23:22:24.329337+00:00",
+  "native": {
+    "records": 23597,
+    "queries": 6415296,
+    "bytes": 31360632,
+    "default_compiler": true
+  },
+  "managed": {
+    "records": 442,
+    "queries": 5374312,
+    "bytes": 21497576,
+    "actual_project": true,
+    "runtime": "10.0.403",
+    "admission": "native-admitted inventories; managed malformed admission differs"
+  },
+  "browser": {
+    "checks_per_dpr": 26,
+    "dprs": [
+      1,
+      2
+    ],
+    "pixels": 204800,
+    "shaders": 6,
+    "resize_and_presented_canvas": true
+  },
+  "all_feature_tests": {
+    "passed": 60,
+    "ignored": 32
+  },
+  "native_strict_clippy": true,
+  "wasm_strict_clippy": true,
+  "source_sha256": {
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp": "d78cd9aeb83731524fa4d52c765dc0b3ae22796f2765b72175ce6abb98259550",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gdef.cpp": "c19b6068a845c03c243b8344c20f8ad84e36e51fbb320f734556e37f6f874772",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Text.Shaping/OpenTypeGdefPolicy.cs": "54cf841aa028345da522bccff5d16f082277508fe31be3f89f1b359ed75e9666",
+    "src/ProGPU.Rust/src/font/layout.rs": "b96269ca5f7205a5bfd08dd39d25252fee9ce90e6d656ee5a7e6a28c5b8473ce",
+    "src/ProGPU.Rust/src/font/layout/coverage.rs": "24e5012549548260fc4b4a856eb7ffc4e72c078b813c4e3b63f9d1ee837757f0",
+    "src/ProGPU.Rust/src/font/layout/table.rs": "0cc9714d11dcacbfd5d12da402f017b10a5e96a4b3869c4b3fd2518bf45b7b36",
+    "src/ProGPU.Rust/src/font/layout/gdef.rs": "39b3c40ecbdfe297dbc5e8cfca6a245a5c35f65c41268897516fa53801a646bc"
+  },
+  "limits": [
+    "No feature selection, GSUB/GPOS execution, complete shaping or text pixel qualification",
+    "Heavily loaded baseline; no optimization claim",
+    "Prior hosted Linux normalization mismatch remains open",
+    "Intermittent hosted browser reliability remains open"
+  ],
+  "fresh_extracted_package": {
+    "native_all_features_all_targets": true,
+    "wasm_browser": true,
+    "isolated_empty_target": true,
+    "runtime_sources_byte_equal": true
+  }
+}

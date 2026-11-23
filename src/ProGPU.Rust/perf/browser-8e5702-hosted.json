@@ -1,0 +1,927 @@
+{
+  "commit": "8e5702a526908ebe6983a16506a8d0611042559d",
+  "run": 42530979071,
+  "artifact": 13637701628,
+  "zip_sha256": "1cfb1fb71501f64f95ce8cf349fa6fdaf00b2922c5010b2badbf45228bba2d07",
+  "qualification": "Original gate and separately observed rerun both failed; instrumentation does not replace original result. No shader, compiler, launch flag, deadline or pixel assertion changed.",
+  "runs": [
+    {
+      "status": "failed",
+      "browser": "151.0.7922.34",
+      "platform": "linux",
+      "architecture": "x64",
+      "headless": false,
+      "flags": [
+        "--enable-unsafe-webgpu",
+        "--use-angle=swiftshader",
+        "--disable-webgpu-shader-disk-cache",
+        "--enable-features=Vulkan",
+        "--use-vulkan=swiftshader",
+        "--disable-vulkan-surface"
+      ],
+      "error": "Error: Timed out waiting for retained browser frame",
+      "artifact_path": "diagnostic-rerun/results.json",
+      "reports": [
+        {
+          "dpr": 1,
+          "stage": "passed",
+          "consoleErrors": [],
+          "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+          "outlineBytes": 96,
+          "compositeBytes": 96,
+          "cffBytes": 192,
+          "cff2Bytes": 96,
+          "gvarChecks": 12,
+          "horizontalChecks": 8,
+          "verticalChecks": 10,
+          "simpleTextChecks": 10,
+          "unicodeChecks": 14,
+          "bidiChecks": 15,
+          "graphemeChecks": 16,
+          "variationChecks": 12,
+          "shaders": 6,
+          "checkedPixels": 102400,
+          "before": {
+            "frames": 4,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 960,
+            "height": 640,
+            "dpi": 1
+          },
+          "after": {
+            "frames": 14,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 960,
+            "height": 640,
+            "dpi": 1
+          },
+          "errors": [],
+          "resized": {
+            "frames": 19,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 800,
+            "height": 560,
+            "dpi": 1
+          },
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          },
+          "gpuDiagnostics": {
+            "elapsedMs": 17281.1,
+            "totals": {
+              "submissions": 173,
+              "completed": 173,
+              "pending": 0,
+              "maxPending": 18
+            },
+            "slow": [
+              {
+                "ms": 2673.6,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 1,
+                "elapsedMs": 1504.8,
+                "pending": 2
+              },
+              {
+                "ms": 2673.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 2,
+                "elapsedMs": 1501.5,
+                "pending": 1
+              },
+              {
+                "ms": 3264.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 3,
+                "elapsedMs": 2085.2,
+                "pending": 1
+              },
+              {
+                "ms": 3856.2,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 4,
+                "elapsedMs": 1153.6,
+                "pending": 1
+              },
+              {
+                "ms": 4408.4,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 5,
+                "elapsedMs": 1112.4,
+                "pending": 0
+              },
+              {
+                "ms": 6083.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 8,
+                "elapsedMs": 850.5,
+                "pending": 1
+              },
+              {
+                "ms": 6083.2,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 9,
+                "elapsedMs": 850.1,
+                "pending": 0
+              },
+              {
+                "ms": 13802.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 156,
+                "elapsedMs": 5597.8,
+                "pending": 17
+              },
+              {
+                "ms": 13802.2,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 157,
+                "elapsedMs": 5597.6,
+                "pending": 16
+              },
+              {
+                "ms": 13802.2,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 158,
+                "elapsedMs": 5597.6,
+                "pending": 15
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 159,
+                "elapsedMs": 5597.6,
+                "pending": 14
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 160,
+                "elapsedMs": 5597.6,
+                "pending": 13
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 161,
+                "elapsedMs": 5597.6,
+                "pending": 12
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 162,
+                "elapsedMs": 5597.5,
+                "pending": 11
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 163,
+                "elapsedMs": 5597.3,
+                "pending": 10
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 164,
+                "elapsedMs": 5597.2,
+                "pending": 9
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 165,
+                "elapsedMs": 5597.2,
+                "pending": 8
+              },
+              {
+                "ms": 13802.4,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 166,
+                "elapsedMs": 5596.7,
+                "pending": 7
+              },
+              {
+                "ms": 14900.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 167,
+                "elapsedMs": 6693.8,
+                "pending": 6
+              },
+              {
+                "ms": 14900.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 168,
+                "elapsedMs": 6689.8,
+                "pending": 5
+              },
+              {
+                "ms": 15438.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 169,
+                "elapsedMs": 7227,
+                "pending": 4
+              },
+              {
+                "ms": 16015,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 170,
+                "elapsedMs": 7802,
+                "pending": 3
+              },
+              {
+                "ms": 16623.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 171,
+                "elapsedMs": 8394.6,
+                "pending": 2
+              },
+              {
+                "ms": 16623.4,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 172,
+                "elapsedMs": 8394.2,
+                "pending": 1
+              },
+              {
+                "ms": 17103.9,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 173,
+                "elapsedMs": 8861.6,
+                "pending": 0
+              }
+            ],
+            "last_events": [
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 162,
+                "elapsedMs": 5597.5,
+                "pending": 11
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 163,
+                "elapsedMs": 5597.3,
+                "pending": 10
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 164,
+                "elapsedMs": 5597.2,
+                "pending": 9
+              },
+              {
+                "ms": 13802.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 165,
+                "elapsedMs": 5597.2,
+                "pending": 8
+              },
+              {
+                "ms": 13802.4,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 166,
+                "elapsedMs": 5596.7,
+                "pending": 7
+              },
+              {
+                "ms": 14900.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 167,
+                "elapsedMs": 6693.8,
+                "pending": 6
+              },
+              {
+                "ms": 14900.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 168,
+                "elapsedMs": 6689.8,
+                "pending": 5
+              },
+              {
+                "ms": 15438.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 169,
+                "elapsedMs": 7227,
+                "pending": 4
+              },
+              {
+                "ms": 16015,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 170,
+                "elapsedMs": 7802,
+                "pending": 3
+              },
+              {
+                "ms": 16623.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 171,
+                "elapsedMs": 8394.6,
+                "pending": 2
+              },
+              {
+                "ms": 16623.4,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 172,
+                "elapsedMs": 8394.2,
+                "pending": 1
+              },
+              {
+                "ms": 17103.9,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 173,
+                "elapsedMs": 8861.6,
+                "pending": 0
+              }
+            ]
+          }
+        },
+        {
+          "dpr": 2,
+          "stage": "final capture completion",
+          "consoleErrors": [],
+          "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+          "outlineBytes": 96,
+          "compositeBytes": 96,
+          "cffBytes": 192,
+          "cff2Bytes": 96,
+          "gvarChecks": 12,
+          "horizontalChecks": 8,
+          "verticalChecks": 10,
+          "simpleTextChecks": 10,
+          "unicodeChecks": 14,
+          "bidiChecks": 15,
+          "graphemeChecks": 16,
+          "variationChecks": 12,
+          "shaders": 6,
+          "checkedPixels": 102400,
+          "before": {
+            "frames": 5,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 1920,
+            "height": 1280,
+            "dpi": 2
+          },
+          "after": {
+            "frames": 15,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 1920,
+            "height": 1280,
+            "dpi": 2
+          },
+          "errors": [],
+          "resized": {
+            "frames": 20,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 1600,
+            "height": 1120,
+            "dpi": 2
+          },
+          "gpuDiagnostics": {
+            "elapsedMs": 46807.7,
+            "totals": {
+              "submissions": 174,
+              "completed": 170,
+              "pending": 4,
+              "maxPending": 18
+            },
+            "slow": [
+              {
+                "ms": 8650.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 1,
+                "elapsedMs": 7692.6,
+                "pending": 4
+              },
+              {
+                "ms": 8650.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 2,
+                "elapsedMs": 7683.1,
+                "pending": 3
+              },
+              {
+                "ms": 8650.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 3,
+                "elapsedMs": 7678,
+                "pending": 2
+              },
+              {
+                "ms": 8650.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 4,
+                "elapsedMs": 7663.1,
+                "pending": 1
+              },
+              {
+                "ms": 10744.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 5,
+                "elapsedMs": 2094.9,
+                "pending": 1
+              },
+              {
+                "ms": 12838.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 6,
+                "elapsedMs": 4187,
+                "pending": 0
+              },
+              {
+                "ms": 14582.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 9,
+                "elapsedMs": 903,
+                "pending": 1
+              },
+              {
+                "ms": 14582.9,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 10,
+                "elapsedMs": 902.7,
+                "pending": 0
+              },
+              {
+                "ms": 14802.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 21,
+                "elapsedMs": 101.9,
+                "pending": 1
+              },
+              {
+                "ms": 14802.1,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 22,
+                "elapsedMs": 101.9,
+                "pending": 0
+              },
+              {
+                "ms": 39093.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 157,
+                "elapsedMs": 22362.6,
+                "pending": 17
+              },
+              {
+                "ms": 39093.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 158,
+                "elapsedMs": 22362.5,
+                "pending": 16
+              },
+              {
+                "ms": 39093.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 159,
+                "elapsedMs": 22362.4,
+                "pending": 15
+              },
+              {
+                "ms": 39093.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 160,
+                "elapsedMs": 22362.3,
+                "pending": 14
+              },
+              {
+                "ms": 39093.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 161,
+                "elapsedMs": 22362.2,
+                "pending": 13
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 162,
+                "elapsedMs": 22362.2,
+                "pending": 12
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 163,
+                "elapsedMs": 22362.2,
+                "pending": 11
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 164,
+                "elapsedMs": 22362.1,
+                "pending": 10
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 165,
+                "elapsedMs": 22362,
+                "pending": 9
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 166,
+                "elapsedMs": 22362,
+                "pending": 8
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 167,
+                "elapsedMs": 22361,
+                "pending": 7
+              },
+              {
+                "ms": 43504.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 168,
+                "elapsedMs": 26771.1,
+                "pending": 6
+              },
+              {
+                "ms": 43504.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 169,
+                "elapsedMs": 26770.2,
+                "pending": 5
+              },
+              {
+                "ms": 45688.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 170,
+                "elapsedMs": 28953.9,
+                "pending": 4
+              }
+            ],
+            "last_events": [
+              {
+                "ms": 39093.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 159,
+                "elapsedMs": 22362.4,
+                "pending": 15
+              },
+              {
+                "ms": 39093.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 160,
+                "elapsedMs": 22362.3,
+                "pending": 14
+              },
+              {
+                "ms": 39093.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 161,
+                "elapsedMs": 22362.2,
+                "pending": 13
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 162,
+                "elapsedMs": 22362.2,
+                "pending": 12
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 163,
+                "elapsedMs": 22362.2,
+                "pending": 11
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 164,
+                "elapsedMs": 22362.1,
+                "pending": 10
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 165,
+                "elapsedMs": 22362,
+                "pending": 9
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 166,
+                "elapsedMs": 22362,
+                "pending": 8
+              },
+              {
+                "ms": 39093.8,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 167,
+                "elapsedMs": 22361,
+                "pending": 7
+              },
+              {
+                "ms": 43504.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 168,
+                "elapsedMs": 26771.1,
+                "pending": 6
+              },
+              {
+                "ms": 43504.3,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 169,
+                "elapsedMs": 26770.2,
+                "pending": 5
+              },
+              {
+                "ms": 45688.7,
+                "kind": "submit-completed",
+                "queue": 1,
+                "sequence": 170,
+                "elapsedMs": 28953.9,
+                "pending": 4
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "status": "failed",
+      "browser": "151.0.7922.34",
+      "platform": "linux",
+      "architecture": "x64",
+      "headless": false,
+      "flags": [
+        "--enable-unsafe-webgpu",
+        "--use-angle=swiftshader",
+        "--disable-webgpu-shader-disk-cache",
+        "--enable-features=Vulkan",
+        "--use-vulkan=swiftshader",
+        "--disable-vulkan-surface"
+      ],
+      "error": "Error: Timed out waiting for retained browser frame",
+      "artifact_path": "results.json",
+      "reports": [
+        {
+          "dpr": 1,
+          "stage": "passed",
+          "consoleErrors": [],
+          "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+          "outlineBytes": 96,
+          "compositeBytes": 96,
+          "cffBytes": 192,
+          "cff2Bytes": 96,
+          "gvarChecks": 12,
+          "horizontalChecks": 8,
+          "verticalChecks": 10,
+          "simpleTextChecks": 10,
+          "unicodeChecks": 14,
+          "bidiChecks": 15,
+          "graphemeChecks": 16,
+          "variationChecks": 12,
+          "shaders": 6,
+          "checkedPixels": 102400,
+          "before": {
+            "frames": 4,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 960,
+            "height": 640,
+            "dpi": 1
+          },
+          "after": {
+            "frames": 14,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 960,
+            "height": 640,
+            "dpi": 1
+          },
+          "errors": [],
+          "resized": {
+            "frames": 20,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 800,
+            "height": 560,
+            "dpi": 1
+          },
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        },
+        {
+          "dpr": 2,
+          "stage": "final capture completion",
+          "consoleErrors": [],
+          "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+          "outlineBytes": 96,
+          "compositeBytes": 96,
+          "cffBytes": 192,
+          "cff2Bytes": 96,
+          "gvarChecks": 12,
+          "horizontalChecks": 8,
+          "verticalChecks": 10,
+          "simpleTextChecks": 10,
+          "unicodeChecks": 14,
+          "bidiChecks": 15,
+          "graphemeChecks": 16,
+          "variationChecks": 12,
+          "shaders": 6,
+          "checkedPixels": 102400,
+          "before": {
+            "frames": 4,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 1920,
+            "height": 1280,
+            "dpi": 2
+          },
+          "after": {
+            "frames": 14,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 1920,
+            "height": 1280,
+            "dpi": 2
+          },
+          "errors": [],
+          "resized": {
+            "frames": 18,
+            "geometryBytes": 29760,
+            "uniformBytes": 224,
+            "draws": 1,
+            "pathRasters": 3,
+            "atlasBytes": 1048576,
+            "width": 1600,
+            "height": 1120,
+            "dpi": 2
+          }
+        }
+      ]
+    }
+  ]
+}

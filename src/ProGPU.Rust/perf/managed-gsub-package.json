@@ -1,0 +1,12 @@
+{
+  "captured_utc": "2026-11-09T02:10:59.690794+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "exact_source_resource_document_files": 270,
+  "original_manifest": "exact",
+  "temporary_bytes_removed": 545922446,
+  "final_package_files": 278,
+  "final_code_and_resource_files_match_previously_verified_package": 211,
+  "final_all_current_src_bytes_match": true
+}

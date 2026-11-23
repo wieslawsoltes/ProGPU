@@ -1,0 +1,346 @@
+{
+  "observed_utc": "2026-11-10T07:30:32.778354+00:00",
+  "scope": "Obsolete ProGPU incremental crate-profile generations only; newest generation per crate retained",
+  "validation": "Implementation only; no compilation/tests/runtime/benchmarks",
+  "active_progpu_compilers": 0,
+  "unrelated_compilers_preserved": 0,
+  "removed": [
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/normalization_conformance-27225oh0spke3",
+      "logical_bytes": 1249222
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_variations_benchmark-31k4z4fc1m0m7",
+      "logical_bytes": 3481222
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/line_break_conformance-0kmqbxkt731q3",
+      "logical_bytes": 625405
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/browser-3w2orqrgzmw0d",
+      "logical_bytes": 13765
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/bidi_benchmark-20wez8r2ujfes",
+      "logical_bytes": 523552
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/layout_benchmark-0fjza17hwl7ga",
+      "logical_bytes": 530735
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/cff-1p2kw2m5tc1ju",
+      "logical_bytes": 2831244
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/shader_validation-214ramfdh1em7",
+      "logical_bytes": 372555
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/shader_validation-35vsw4eyp3055",
+      "logical_bytes": 371020
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/composite-3nw9wxudlc1zw",
+      "logical_bytes": 1900512
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/gvar-0xsvn3hgtunoy",
+      "logical_bytes": 3244025
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/digest_benchmark-30b1teuct78oc",
+      "logical_bytes": 713122
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_feature_benchmark-3g27r5s642pyk",
+      "logical_bytes": 1329084
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/unicode_benchmark-19mb847w4gbm4",
+      "logical_bytes": 497161
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_gpos-19wsrcyhr8usg",
+      "logical_bytes": 2603377
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_grapheme-21eeb6vevdh2o",
+      "logical_bytes": 1881591
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_names_benchmark-23qldt81zopvn",
+      "logical_bytes": 1760494
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_mapping_benchmark-2ugb6r0sdamh5",
+      "logical_bytes": 1893007
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/digest-28rb2i9lwz0j1",
+      "logical_bytes": 2421009
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/normalization_benchmark-2bmwqv4jfqotl",
+      "logical_bytes": 534774
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/indic_syllable_control-31uwoaraoly94",
+      "logical_bytes": 458038
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/gsub-01d92sa124m65",
+      "logical_bytes": 2566449
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_positioning_benchmark-3qolzkop11fwr",
+      "logical_bytes": 2350060
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_gpos_benchmark-23184js5maqmg",
+      "logical_bytes": 2170457
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/grapheme-1x3o6fjol8kqt",
+      "logical_bytes": 1776193
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/font-0d7adz8vik5m3",
+      "logical_bytes": 1760642
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/script_property_control-26paldmljbroz",
+      "logical_bytes": 311255
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/script_properties-1zdq859uhs6f3",
+      "logical_bytes": 420962
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/bidi-0dq4purgpl1r0",
+      "logical_bytes": 2168778
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/progpu-2yf4o1e8pgf72",
+      "logical_bytes": 123457885
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/progpu-0dhp8lwr0po0l",
+      "logical_bytes": 55352038
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/progpu-3s67hs4gs4a8f",
+      "logical_bytes": 79279105
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/progpu-1r5ww1lwxj7sf",
+      "logical_bytes": 67115504
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/progpu-1g79aeky9oo2l",
+      "logical_bytes": 76054376
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/progpu-1mbwrt17gifee",
+      "logical_bytes": 63954876
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_feature_selection-29hdryg35ykrr",
+      "logical_bytes": 2245069
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/horizontal-120ooc0o88o9i",
+      "logical_bytes": 2064638
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_script_actions-1m641mwg2goaq",
+      "logical_bytes": 4876656
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/metrics_benchmark-3tnq9fidvz94e",
+      "logical_bytes": 533360
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_dispatch_benchmark-07zlyz7t7d7at",
+      "logical_bytes": 2186119
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/khmer_syllable_control-0er5785ofrsdz",
+      "logical_bytes": 437383
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_grapheme_benchmark-0kcts9zlzojt4",
+      "logical_bytes": 619237
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/selection_benchmark-3tg7qjxt064ci",
+      "logical_bytes": 885013
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_context-1by00fm862n28",
+      "logical_bytes": 2468194
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/normalization-39glncp9ojqwh",
+      "logical_bytes": 2016041
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/bidi_levels_conformance-11714tj454j3y",
+      "logical_bytes": 688749
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_dispatch-3em52k2h01q7q",
+      "logical_bytes": 2597618
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/layout-118lsskkhzgsb",
+      "logical_bytes": 2849585
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/outline-246qemjpenmvz",
+      "logical_bytes": 2175212
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/winit-07t2yhaxihxaq",
+      "logical_bytes": 6295817
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/vertical-1zc23kmwmoebs",
+      "logical_bytes": 2119437
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_gsub_benchmark-1gdtxjih9l8nl",
+      "logical_bytes": 2186495
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_names-35ohcdxfrwr7r",
+      "logical_bytes": 2873128
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/font_benchmark-1f06t4j7opkri",
+      "logical_bytes": 1163565
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/variations-08wp5dvg2yrpt",
+      "logical_bytes": 1917105
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_font_benchmark-0o0przw2g6nbw",
+      "logical_bytes": 2843327
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/simple_text-0a59jz2mges75",
+      "logical_bytes": 2293734
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/selection-0xvwfat918vl8",
+      "logical_bytes": 2496071
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/gsub_benchmark-14cwqlb95qwpy",
+      "logical_bytes": 1887920
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_preparation_benchmark-3iqvic1bsy3m7",
+      "logical_bytes": 2370165
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_gsub_execution-014dltoszzdll",
+      "logical_bytes": 2686124
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_context_benchmark-2txjfkadf2v3n",
+      "logical_bytes": 1277371
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_script_actions_benchmark-13pl06qkpxd9e",
+      "logical_bytes": 2744689
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/outline_benchmark-3pnihb3b4y7ml",
+      "logical_bytes": 653133
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_preparation-3dbx6y0o6n3b7",
+      "logical_bytes": 3392149
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/native_geometry-2q7go2hacmvg4",
+      "logical_bytes": 1719173
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_positioning-19o90m95lvf9y",
+      "logical_bytes": 3221666
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/grapheme_benchmark-03u3mlt3cnt21",
+      "logical_bytes": 1105184
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/myanmar_syllable_control-2n2lwxyp67jp8",
+      "logical_bytes": 366234
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/gpu_rendering-0vjhjwxlx36tp",
+      "logical_bytes": 3642490
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/line_break-1dix7hsc7mh4v",
+      "logical_bytes": 1751932
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_mapping-3feqzf7fh651f",
+      "logical_bytes": 2308943
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/script_property_benchmark-1hgh0ninezc2s",
+      "logical_bytes": 761894
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_variations-2v6btg9hwa745",
+      "logical_bytes": 3742315
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/use_syllable_control-0bl05z25qav7p",
+      "logical_bytes": 476081
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/unicode-166upv8oto57o",
+      "logical_bytes": 2005204
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/simple_text_benchmark-3a161v01hy67t",
+      "logical_bytes": 674983
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/grapheme_conformance-1e38xliau5uh9",
+      "logical_bytes": 1274285
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/item_variation-08jae2wcdcy2s",
+      "logical_bytes": 1879194
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/retained_benchmark-1s9gyxmlyyose",
+      "logical_bytes": 2181112
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/managed_font-1wkf3ejicx96e",
+      "logical_bytes": 3400595
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/line_break_benchmark-1bwsbw022lnl4",
+      "logical_bytes": 507648
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental/vertical_metrics_benchmark-1u3enbzdyv66k",
+      "logical_bytes": 571030
+    }
+  ],
+  "removed_logical_bytes": 605406561,
+  "free_gib": {
+    "/Users/wieslawsoltes/GitHub/ProGPU": 29.67,
+    "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1": 170.67
+  }
+}

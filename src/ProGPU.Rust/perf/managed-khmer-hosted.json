@@ -1,0 +1,273 @@
+{
+  "commit": "5abda062f2ca9fd779de98c5bf3ad3c331c672f4",
+  "run_id": 42605572554,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42605572554",
+  "scope": "Terminal Khmer checkpoint. All executed Rust jobs pass; macOS cancelled. Earlier hosted browser device losses remain unresolved.",
+  "jobs": [
+    {
+      "id": 129120571912,
+      "name": "managed-text-source",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129120572139,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129120572168,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129120572172,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129120572227,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129120572392,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    }
+  ],
+  "source": {
+    "syllable_cases": 1398562,
+    "syllable_bytes": 9586614,
+    "complete_action_cases": 1163438,
+    "complete_action_bytes": 1280067984
+  },
+  "browser": {
+    "status": "passed",
+    "browser": "151.0.7922.34",
+    "platform": "linux",
+    "architecture": "x64",
+    "headless": false,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache",
+      "--enable-features=Vulkan",
+      "--use-vulkan=swiftshader",
+      "--disable-vulkan-surface"
+    ],
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "scriptPropertyQueries": 2228228,
+        "scriptPropertyExtractions": 65536,
+        "propertyDigest": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 3126,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 29,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 640,
+          "dpi": 1
+        },
+        "after": {
+          "frames": 39,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 640,
+          "dpi": 1
+        },
+        "errors": [],
+        "resized": {
+          "frames": 44,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 800,
+          "height": 560,
+          "dpi": 1
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "scriptPropertyQueries": 2228228,
+        "scriptPropertyExtractions": 65536,
+        "propertyDigest": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 3126,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 12,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1280,
+          "dpi": 2
+        },
+        "after": {
+          "frames": 22,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1280,
+          "dpi": 2
+        },
+        "errors": [],
+        "resized": {
+          "frames": 26,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1600,
+          "height": 1120,
+          "dpi": 2
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "utc": "2026-11-09T08:56:08.116380+00:00",
+  "removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-joining-package-zvomog7v",
+      "logical_bytes": 266138283
+    },
+    {
+      "path": "/tmp/progpu-rust-joining-data",
+      "logical_bytes": 82076
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2634891
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148374
+    }
+  ],
+  "additional_logical_bytes": 269003624,
+  "preserved": "Dependency build cache, browser tool/download cache, .NET and wasm-bindgen tools; compact source/browser/benchmark/package receipts retained.",
+  "crate_only_cargo_clean": "Removed 24943 files, 1.8GiB total",
+  "final_archive_removed_bytes": 1574225,
+  "transient_logs_removed_bytes": 112144
+}

@@ -1,0 +1,143 @@
+# Independently observed original API inputs and results; public form facts.
+form 621 0 0 0 fe80
+form 622 0 0 fe82 fe81
+form 623 0 0 fe84 fe83
+form 624 0 0 fe86 fe85
+form 625 0 0 fe88 fe87
+form 626 fe8b fe8c fe8a fe89
+form 627 0 0 fe8e fe8d
+form 628 fe91 fe92 fe90 fe8f
+form 629 0 0 fe94 fe93
+form 62a fe97 fe98 fe96 fe95
+form 62b fe9b fe9c fe9a fe99
+form 62c fe9f fea0 fe9e fe9d
+form 62d fea3 fea4 fea2 fea1
+form 62e fea7 fea8 fea6 fea5
+form 62f 0 0 feaa fea9
+form 630 0 0 feac feab
+form 631 0 0 feae fead
+form 632 0 0 feb0 feaf
+form 633 feb3 feb4 feb2 feb1
+form 634 feb7 feb8 feb6 feb5
+form 635 febb febc feba feb9
+form 636 febf fec0 febe febd
+form 637 fec3 fec4 fec2 fec1
+form 638 fec7 fec8 fec6 fec5
+form 639 fecb fecc feca fec9
+form 63a fecf fed0 fece fecd
+form 641 fed3 fed4 fed2 fed1
+form 642 fed7 fed8 fed6 fed5
+form 643 fedb fedc feda fed9
+form 644 fedf fee0 fede fedd
+form 645 fee3 fee4 fee2 fee1
+form 646 fee7 fee8 fee6 fee5
+form 647 feeb feec feea fee9
+form 648 0 0 feee feed
+form 649 fbe8 fbe9 fef0 feef
+form 64a fef3 fef4 fef2 fef1
+form 671 0 0 fb51 fb50
+form 677 0 0 0 fbdd
+form 679 fb68 fb69 fb67 fb66
+form 67a fb60 fb61 fb5f fb5e
+form 67b fb54 fb55 fb53 fb52
+form 67e fb58 fb59 fb57 fb56
+form 67f fb64 fb65 fb63 fb62
+form 680 fb5c fb5d fb5b fb5a
+form 683 fb78 fb79 fb77 fb76
+form 684 fb74 fb75 fb73 fb72
+form 686 fb7c fb7d fb7b fb7a
+form 687 fb80 fb81 fb7f fb7e
+form 688 0 0 fb89 fb88
+form 68c 0 0 fb85 fb84
+form 68d 0 0 fb83 fb82
+form 68e 0 0 fb87 fb86
+form 691 0 0 fb8d fb8c
+form 698 0 0 fb8b fb8a
+form 6a4 fb6c fb6d fb6b fb6a
+form 6a6 fb70 fb71 fb6f fb6e
+form 6a9 fb90 fb91 fb8f fb8e
+form 6ad fbd5 fbd6 fbd4 fbd3
+form 6af fb94 fb95 fb93 fb92
+form 6b1 fb9c fb9d fb9b fb9a
+form 6b3 fb98 fb99 fb97 fb96
+form 6ba 0 0 fb9f fb9e
+form 6bb fba2 fba3 fba1 fba0
+form 6be fbac fbad fbab fbaa
+form 6c0 0 0 fba5 fba4
+form 6c1 fba8 fba9 fba7 fba6
+form 6c5 0 0 fbe1 fbe0
+form 6c6 0 0 fbda fbd9
+form 6c7 0 0 fbd8 fbd7
+form 6c8 0 0 fbdc fbdb
+form 6c9 0 0 fbe3 fbe2
+form 6cb 0 0 fbdf fbde
+form 6cc fbfe fbff fbfd fbfc
+form 6d0 fbe6 fbe7 fbe5 fbe4
+form 6d2 0 0 fbaf fbae
+form 6d3 0 0 fbb1 fbb0
+triple fedf fee4 fea4 fd88
+triple fedf fee0 feea f201
+triple fedf fee4 fea0 f211
+pair fe91 fee2 fc08
+pair fe91 fee4 fc9f
+pair fe91 fea0 fc9c
+pair fe91 fea4 fc9d
+pair fe91 fea8 fc9e
+pair fe92 feae fc6a
+pair fe92 fee6 fc6d
+pair fe92 fef2 fc6f
+pair fe97 fee2 fc0e
+pair fe97 fee4 fca4
+pair fe97 fea0 fca1
+pair fe97 fea4 fca2
+pair fe97 fea8 fca3
+pair fe98 feae fc70
+pair fe98 fee6 fc73
+pair fe98 fef2 fc75
+pair fe9b fee2 fc12
+pair fe9f fee4 fca8
+pair fea3 fee4 fcaa
+pair fea7 fee4 fcac
+pair feb3 fee4 fcb0
+pair feb7 fee4 fd30
+pair fed3 fef2 fc32
+pair fedf fe9e fc3f
+pair fedf fea0 fcc9
+pair fedf fea2 fc40
+pair fedf fea4 fcca
+pair fedf fea6 fc41
+pair fedf fea8 fccb
+pair fedf fee2 fc42
+pair fedf fee4 fccc
+pair fedf fef0 fc43
+pair fedf fef2 fc44
+pair fedf feec fccd
+pair fedf fe82 fef5
+pair fedf fe84 fef7
+pair fedf fe88 fef9
+pair fedf fe8e fefb
+pair fee0 fef0 fc86
+pair fee0 fe82 fef6
+pair fee0 fe84 fef8
+pair fee0 fe88 fefa
+pair fee0 fe8e fefc
+pair fee3 fea0 fcce
+pair fee3 fea4 fccf
+pair fee3 fea8 fcd0
+pair fee3 fee4 fcd1
+pair fee7 fee2 fc4e
+pair fee7 fee4 fcd5
+pair fee7 fea0 fcd2
+pair fee7 fea4 fcd3
+pair fee8 fef2 fc8f
+pair fef3 fea0 fcda
+pair fef3 fea4 fcdb
+pair fef3 fea8 fcdc
+pair fef3 fee4 fcdd
+pair fef4 feae fc91
+pair fef4 fee6 fc94
+mark 651 64c fc5e
+mark 651 64e fc60
+mark 651 64f fc61
+mark 651 650 fc62
+mark 651 64b f2ee

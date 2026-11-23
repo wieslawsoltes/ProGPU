@@ -1,0 +1,13 @@
+{
+  "captured_utc": "2026-11-09T05:02:36.662809+00:00",
+  "cargo_clean": "Removed 36339 files, 3.2GiB total",
+  "temporary_package_bytes_removed": 592916727,
+  "temporary_benchmark_bytes_removed": 74144173,
+  "explicit_paths_removed": {
+    "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser": 2519317,
+    "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results": 148079,
+    "/tmp/progpu-rust-font-package.py": 1795
+  },
+  "additional_logical_bytes_removed": 669730091,
+  "scope": "Task-owned build/package/benchmark/browser outputs only; dependency and tool caches preserved. Logical totals are not APFS physical claims. Source temporary directories retire via RAII. Final package verification output and compact staging hashes retire afterward."
+}

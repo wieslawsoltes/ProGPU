@@ -1,0 +1,68 @@
+{
+  "utc": "2026-11-09T12:02:00.800804+00:00",
+  "removed": [
+    {
+      "path": "/tmp/progpu-rust-use/before.trace",
+      "logical_bytes": 240390
+    },
+    {
+      "path": "/tmp/progpu-rust-use/before-valid.trace",
+      "logical_bytes": 6972353
+    },
+    {
+      "path": "/tmp/progpu-rust-use/after.trace",
+      "logical_bytes": 6920409
+    },
+    {
+      "path": "/tmp/progpu-rust-use/before-samples.xml",
+      "logical_bytes": 1245387
+    },
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-use-package-suyjq759",
+      "logical_bytes": 405742464
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2692209
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148725
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/package/progpu-0.1.0.crate",
+      "logical_bytes": 2089833
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/eng/__pycache__/progpu-capture-rust-script-properties.cpython-314.pyc",
+      "logical_bytes": 11332
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/eng/__pycache__/progpu-benchmark-rust-script-actions.cpython-314.pyc",
+      "logical_bytes": 22001
+    },
+    {
+      "path": "/tmp/progpu-rust-use",
+      "logical_bytes": 80055952
+    },
+    {
+      "path": "/tmp/progpu-rust-use-package-dir",
+      "logical_bytes": 81
+    },
+    {
+      "path": "/tmp/progpu-rust-use-package-source.json",
+      "logical_bytes": 61229
+    },
+    {
+      "path": "/tmp/progpu-rust-use-package-wasm.log",
+      "logical_bytes": 2095
+    },
+    {
+      "path": "/tmp/progpu-rust-use-package-native.log",
+      "logical_bytes": 2802
+    }
+  ],
+  "crate_only_cargo_clean": "Removed 26039 files, 1.9GiB total",
+  "additional_logical_bytes": 506207262,
+  "preserved": "Reusable dependency build cache, .NET/wasm-bindgen tools and browser tools/downloads. Compact source/browser/benchmark/package/hosted receipts and complete compressed Instruments exports retained. Source oracle and benchmark temporary directories also retire automatically."
+}

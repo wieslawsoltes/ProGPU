@@ -1,0 +1,44 @@
+{
+  "commit": "41b32087bfe2c98cda8c5ef0f374d222db2dcdf4",
+  "run_id": 42609257764,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42609257764",
+  "scope": "Terminal Myanmar checkpoint. Source, GPU, Windows and Linux pass; macOS cancelled. Browser failed after all action and offscreen pixel checks at DPR 2; original and diagnostic evidence in browser-41b320-hosted.json. No browser reliability qualification.",
+  "jobs": [
+    {
+      "id": 129133128779,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129133129075,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 129133129112,
+      "name": "managed-text-source",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129133129167,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129133129181,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129133129634,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    }
+  ]
+}

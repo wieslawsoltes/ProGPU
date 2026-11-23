@@ -1,0 +1,15 @@
+{
+  "utc": "2026-11-09T08:55:04.078968+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "archive_files_at_fresh_build": 442,
+  "exact_original_files_at_fresh_build": 440,
+  "fresh_build_archive_sha256": "b9d17a8719ac88fe6a817c7062a43af3e6290db4d607cf67cf06ccad74c5c130",
+  "scope": "Independent extracted package sources/resources compiled with fresh target; final package/cleanup and preceding hosted receipts finalized afterward.",
+  "final_archive_files": 444,
+  "final_exact_original_files": 442,
+  "unchanged_source_resource_document_files": 312,
+  "final_archive_sha256": "baa92192f6015883f01be90c680ff8e9302025d2f0121bc4b5c5b02016b7aa78",
+  "post_verification_changes": "Only compact package/cleanup and preceding hosted receipts finalized after exact final archive verification."
+}

@@ -1,0 +1,586 @@
+{
+  "date": "2026-11-08",
+  "method": "5 warmups, 40 serial measured rounds; original segmentation or strict UTF-16 starts plus identical output hashing; source decoding and allocation outside timing",
+  "rust": "1.90.0 Release",
+  "cpp": "Apple Clang 21.0.0 -std=c++20 -O2 -Wall -Wextra -Werror; original defaults",
+  "binaries": {
+    "target/release/examples/grapheme_benchmark": "695a04027f09dd79d7fbe93ca26531edbe73990a48190a2524f0ab1c908bec93",
+    "/tmp/progpu-rust-grapheme-native-benchmark": "05411891fd5484c7347095adf26bc3ebbeaa8d109ed32558ec2951a23f5d894b"
+  },
+  "inputs": [
+    {
+      "kind": "ascii",
+      "mode": "clusters",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 1,
+      "utf16_le_sha256": "3231b19fd64d992b96df980b2d2a1ee3e09389cb98cd19532f8a6d9598a872e1",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 clusters=18 scratch_bytes=0 checksum=10532613770986181585 round_us_p50=2.417 p95=2.833 p99=3.166",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 clusters=18 scratch_bytes=0 checksum=10532613770986181585 round_us_p50=2.625 p95=2.667 p99=2.667",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "clusters",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 256,
+      "utf16_le_sha256": "f321ee6bcfb9c79c637ad027f815d19e699c7b20835e093fc474da1dd888c58a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 clusters=4608 scratch_bytes=0 checksum=8516644624635956005 round_us_p50=249.417 p95=485.833 p99=653.542",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 clusters=4608 scratch_bytes=0 checksum=8516644624635956005 round_us_p50=246.709 p95=273.958 p99=279.583",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "clusters",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 2048,
+      "utf16_le_sha256": "8e775c56d68b18e1b0809388508f0a8d67736ecfc485c0cdbbdaff7194f4a56a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=36864 scalars=36864 clusters=36864 scratch_bytes=0 checksum=9999834824188674853 round_us_p50=2032.083 p95=2090.291 p99=2122.958",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=36864 scalars=36864 clusters=36864 scratch_bytes=0 checksum=9999834824188674853 round_us_p50=1938.625 p95=2022.209 p99=2099.041",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "managed",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 1,
+      "utf16_le_sha256": "3231b19fd64d992b96df980b2d2a1ee3e09389cb98cd19532f8a6d9598a872e1",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 clusters=18 scratch_bytes=0 checksum=10532613770986181585 round_us_p50=0.875 p95=0.875 p99=0.916",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 clusters=18 scratch_bytes=0 checksum=10532613770986181585 round_us_p50=0.834 p95=0.875 p99=0.875",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "managed",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 256,
+      "utf16_le_sha256": "f321ee6bcfb9c79c637ad027f815d19e699c7b20835e093fc474da1dd888c58a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 clusters=4608 scratch_bytes=0 checksum=8516644624635956005 round_us_p50=213.667 p95=236.083 p99=256.541",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 clusters=4608 scratch_bytes=0 checksum=8516644624635956005 round_us_p50=217.458 p95=236.083 p99=262.000",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "managed",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 2048,
+      "utf16_le_sha256": "8e775c56d68b18e1b0809388508f0a8d67736ecfc485c0cdbbdaff7194f4a56a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=36864 scalars=36864 clusters=36864 scratch_bytes=0 checksum=9999834824188674853 round_us_p50=1680.250 p95=1720.959 p99=1801.375",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=36864 scalars=36864 clusters=36864 scratch_bytes=0 checksum=9999834824188674853 round_us_p50=1738.375 p95=1808.584 p99=1832.542",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "starts",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 1,
+      "utf16_le_sha256": "3231b19fd64d992b96df980b2d2a1ee3e09389cb98cd19532f8a6d9598a872e1",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 clusters=18 scratch_bytes=0 checksum=5584030034779205703 round_us_p50=0.500 p95=0.500 p99=0.625",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 clusters=18 scratch_bytes=0 checksum=5584030034779205703 round_us_p50=0.458 p95=0.500 p99=0.584",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "starts",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 256,
+      "utf16_le_sha256": "f321ee6bcfb9c79c637ad027f815d19e699c7b20835e093fc474da1dd888c58a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 clusters=4608 scratch_bytes=0 checksum=14970864317918600485 round_us_p50=123.833 p95=130.500 p99=139.083",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 clusters=4608 scratch_bytes=0 checksum=14970864317918600485 round_us_p50=115.917 p95=132.375 p99=134.625",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "starts",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 2048,
+      "utf16_le_sha256": "8e775c56d68b18e1b0809388508f0a8d67736ecfc485c0cdbbdaff7194f4a56a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=36864 scalars=36864 clusters=36864 scratch_bytes=0 checksum=7747645492140438309 round_us_p50=1039.459 p95=1197.459 p99=1350.458",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=36864 scalars=36864 clusters=36864 scratch_bytes=0 checksum=7747645492140438309 round_us_p50=956.166 p95=1141.500 p99=1182.292",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "clusters",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 1,
+      "utf16_le_sha256": "8b60b0f23ba38d78b8ecc8002d6b036cec4b6f517c4e61e373c5a7f13735622d",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=21 clusters=17 scratch_bytes=0 checksum=5766643889795595701 round_us_p50=1.333 p95=1.334 p99=1.375",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=21 clusters=17 scratch_bytes=0 checksum=5766643889795595701 round_us_p50=1.292 p95=1.667 p99=9.292",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "clusters",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 256,
+      "utf16_le_sha256": "402cb30d9036b3cdaa0f254e1a56044a36fecc22b446e91a64fc3793e0d87e10",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=5376 clusters=4352 scratch_bytes=0 checksum=14989869068076890405 round_us_p50=348.667 p95=403.750 p99=726.166",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=5376 clusters=4352 scratch_bytes=0 checksum=14989869068076890405 round_us_p50=330.791 p95=367.042 p99=379.416",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "clusters",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 2048,
+      "utf16_le_sha256": "16c55b79d77e433634fbe9d2eff8ddd112ed46c5ff9613be1d8832751984b9d9",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=43008 clusters=34816 scratch_bytes=0 checksum=15625866180991857445 round_us_p50=2801.000 p95=3018.542 p99=3221.625",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=43008 clusters=34816 scratch_bytes=0 checksum=15625866180991857445 round_us_p50=2603.375 p95=2670.125 p99=2696.417",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "managed",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 1,
+      "utf16_le_sha256": "8b60b0f23ba38d78b8ecc8002d6b036cec4b6f517c4e61e373c5a7f13735622d",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=21 clusters=18 scratch_bytes=0 checksum=5600320064996353537 round_us_p50=1.125 p95=1.125 p99=1.292",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=21 clusters=18 scratch_bytes=0 checksum=5600320064996353537 round_us_p50=1.083 p95=1.084 p99=1.125",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "managed",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 256,
+      "utf16_le_sha256": "402cb30d9036b3cdaa0f254e1a56044a36fecc22b446e91a64fc3793e0d87e10",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=5376 clusters=4608 scratch_bytes=0 checksum=9408697291030635301 round_us_p50=293.166 p95=316.250 p99=318.542",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=5376 clusters=4608 scratch_bytes=0 checksum=9408697291030635301 round_us_p50=290.125 p95=298.167 p99=322.875",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "managed",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 2048,
+      "utf16_le_sha256": "16c55b79d77e433634fbe9d2eff8ddd112ed46c5ff9613be1d8832751984b9d9",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=43008 clusters=36864 scratch_bytes=0 checksum=5168703955335123749 round_us_p50=2426.209 p95=2510.625 p99=2528.625",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=43008 clusters=36864 scratch_bytes=0 checksum=5168703955335123749 round_us_p50=2334.917 p95=2429.542 p99=2457.291",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "starts",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 1,
+      "utf16_le_sha256": "8b60b0f23ba38d78b8ecc8002d6b036cec4b6f517c4e61e373c5a7f13735622d",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=21 clusters=17 scratch_bytes=0 checksum=12830567239435428894 round_us_p50=0.708 p95=0.917 p99=1.083",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=21 clusters=17 scratch_bytes=0 checksum=12830567239435428894 round_us_p50=0.584 p95=0.625 p99=0.625",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "starts",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 256,
+      "utf16_le_sha256": "402cb30d9036b3cdaa0f254e1a56044a36fecc22b446e91a64fc3793e0d87e10",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=5376 clusters=4352 scratch_bytes=0 checksum=2157152191505951269 round_us_p50=172.208 p95=186.375 p99=188.583",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=5376 clusters=4352 scratch_bytes=0 checksum=2157152191505951269 round_us_p50=151.959 p95=157.584 p99=157.875",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "starts",
+      "pattern": "Á العربية 日本語\r\n क्क ",
+      "repeats": 2048,
+      "utf16_le_sha256": "16c55b79d77e433634fbe9d2eff8ddd112ed46c5ff9613be1d8832751984b9d9",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=43008 clusters=34816 scratch_bytes=0 checksum=17100054394310253349 round_us_p50=1390.792 p95=1499.542 p99=1560.042",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=43008 clusters=34816 scratch_bytes=0 checksum=17100054394310253349 round_us_p50=1273.166 p95=1337.209 p99=1354.000",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "clusters",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 1,
+      "utf16_le_sha256": "4411f448b093705fb320d2d6604e6dce75528b28be457b42235f13d86e062b4a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=14 clusters=7 scratch_bytes=0 checksum=9929659802873232609 round_us_p50=0.958 p95=1.000 p99=1.125",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=14 clusters=7 scratch_bytes=0 checksum=9929659802873232609 round_us_p50=0.875 p95=0.917 p99=0.917",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "clusters",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 256,
+      "utf16_le_sha256": "d21047eceddcd46495b169d17daac8ec643387c98a8397909add0a396e217884",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=3584 clusters=1792 scratch_bytes=0 checksum=13833530991854695461 round_us_p50=258.459 p95=274.000 p99=308.625",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=3584 clusters=1792 scratch_bytes=0 checksum=13833530991854695461 round_us_p50=227.333 p95=237.667 p99=251.709",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "clusters",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 2048,
+      "utf16_le_sha256": "4916382287e2e1a21b07d4c7e0a23805bbba875b85197b8988b13f8067cd3947",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=28672 clusters=14336 scratch_bytes=0 checksum=2064760355523201829 round_us_p50=2132.833 p95=2217.250 p99=2272.083",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=28672 clusters=14336 scratch_bytes=0 checksum=2064760355523201829 round_us_p50=1861.916 p95=1953.542 p99=2005.834",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "managed",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 1,
+      "utf16_le_sha256": "4411f448b093705fb320d2d6604e6dce75528b28be457b42235f13d86e062b4a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=14 clusters=7 scratch_bytes=0 checksum=9929659802873232609 round_us_p50=0.833 p95=0.834 p99=0.875",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=14 clusters=7 scratch_bytes=0 checksum=9929659802873232609 round_us_p50=0.750 p95=0.791 p99=0.792",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "managed",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 256,
+      "utf16_le_sha256": "d21047eceddcd46495b169d17daac8ec643387c98a8397909add0a396e217884",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=3584 clusters=1792 scratch_bytes=0 checksum=13833530991854695461 round_us_p50=219.250 p95=233.000 p99=242.958",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=3584 clusters=1792 scratch_bytes=0 checksum=13833530991854695461 round_us_p50=198.792 p95=210.416 p99=216.709",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "managed",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 2048,
+      "utf16_le_sha256": "4916382287e2e1a21b07d4c7e0a23805bbba875b85197b8988b13f8067cd3947",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=28672 clusters=14336 scratch_bytes=0 checksum=2064760355523201829 round_us_p50=1803.625 p95=1918.042 p99=2048.791",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=28672 clusters=14336 scratch_bytes=0 checksum=2064760355523201829 round_us_p50=1659.958 p95=1741.084 p99=1815.209",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "starts",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 1,
+      "utf16_le_sha256": "4411f448b093705fb320d2d6604e6dce75528b28be457b42235f13d86e062b4a",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=14 clusters=7 scratch_bytes=0 checksum=9651992866639475114 round_us_p50=0.542 p95=0.542 p99=0.666",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=21 scalars=14 clusters=7 scratch_bytes=0 checksum=9651992866639475114 round_us_p50=0.417 p95=0.458 p99=0.459",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "starts",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 256,
+      "utf16_le_sha256": "d21047eceddcd46495b169d17daac8ec643387c98a8397909add0a396e217884",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=3584 clusters=1792 scratch_bytes=0 checksum=5648560998870976037 round_us_p50=138.125 p95=138.292 p99=141.959",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=5376 scalars=3584 clusters=1792 scratch_bytes=0 checksum=5648560998870976037 round_us_p50=112.625 p95=117.375 p99=150.167",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "starts",
+      "pattern": "🇵🇱👩́‍👧👍🏽🇦 각 ",
+      "repeats": 2048,
+      "utf16_le_sha256": "4916382287e2e1a21b07d4c7e0a23805bbba875b85197b8988b13f8067cd3947",
+      "runs": [
+        {
+          "binary": "target/release/examples/grapheme_benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=28672 clusters=14336 scratch_bytes=0 checksum=7270504988936583973 round_us_p50=1129.791 p95=1171.708 p99=1200.917",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-grapheme-native-benchmark",
+          "exit": 0,
+          "output": "units=43008 scalars=28672 clusters=14336 scratch_bytes=0 checksum=7270504988936583973 round_us_p50=921.208 p95=955.292 p99=992.958",
+          "stderr": ""
+        }
+      ]
+    }
+  ],
+  "sources": {
+    "src/ProGPU.Rust/src/text/unicode/grapheme.rs": "8ba85be383ca8bccc30203be5ffc4fd12431f54febb66351972263b746028f91",
+    "src/ProGPU.Rust/src/text/unicode/data.rs": "a9d9b2198c604c4eb6793554d5a02857e85117c7e172c08fb61083e551e6c32e",
+    "src/ProGPU.Rust/examples/grapheme_benchmark.rs": "7bec7712de632fa1b96aea2b3710d6746c65a991e8b93b4330332c1897c5443f",
+    "src/ProGPU.Rust/tests/native_grapheme_benchmark.cpp": "b0f1ce8604796a536ceb0e29a982baad861cbb02215f630c97da1483bbe0a89c",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode_grapheme.cpp": "0451993c4caf4c33a3b1ffc4f94bdaaabfb3e8adf3c29261c55595ef43c23f0e"
+  }
+}

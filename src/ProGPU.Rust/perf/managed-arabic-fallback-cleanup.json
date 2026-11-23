@@ -1,0 +1,25 @@
+{
+  "utc": "2026-11-09T09:43:43.994857+00:00",
+  "removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-arabic-fallback-package-lw432oqg",
+      "logical_bytes": 620906861
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2640418
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148374
+    },
+    {
+      "path": "/tmp/progpu-rust-arabic-fallback",
+      "logical_bytes": 78391755
+    }
+  ],
+  "preserved": "Reusable dependency build cache, .NET/wasm-bindgen tools and browser tool/download caches; compact source/browser/benchmark/package receipts retained.",
+  "crate_only_cargo_clean": "Removed 36914 files, 2.2GiB total",
+  "final_archive_removed_bytes": 1614115,
+  "additional_logical_bytes": 702087408
+}

@@ -1,0 +1,15 @@
+{
+  "captured_utc": "2026-11-09T05:31:30.781649+00:00",
+  "cargo_clean_package": "Removed 22769 files, 1.7GiB total",
+  "previous_full_clean": "Removed 26225 files, 3.0GiB total",
+  "previous_additional_logical_bytes_removed": 748860506,
+  "temporary_package_bytes_removed": 597977790,
+  "temporary_benchmark_bytes_removed": 74115779,
+  "explicit_paths_removed": {
+    "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser": 2533442,
+    "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results": 148144,
+    "/tmp/progpu-rust-mapping-package.py": 1782
+  },
+  "additional_logical_bytes_removed": 1423637443,
+  "scope": "Task-owned crate binaries, package, benchmark and browser outputs removed. Reusable dependency build/tool/download caches preserved for subsequent port work. Logical totals are not APFS physical claims. Source/capture temporary directories retire via RAII; final package verification archive and staging hashes retire afterward."
+}

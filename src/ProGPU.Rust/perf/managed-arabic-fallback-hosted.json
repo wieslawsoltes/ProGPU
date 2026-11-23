@@ -1,0 +1,93 @@
+{
+  "commit": "24f6052fd4c441c0e85e51e9ef800aca6feea547",
+  "run_id": 42595701066,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42595701066",
+  "scope": "Terminal hosted Arabic fallback checkpoint. Browser failure and cancelled macOS remain unqualified; later vowel/observer edits are separate.",
+  "jobs": [
+    {
+      "id": 129087665970,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129087666394,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 129087666427,
+      "name": "managed-text-source",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129087666494,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 129087666587,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129087666686,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "managed": {
+    "cases": 914017,
+    "exact_bytes": 1018791924,
+    "normalization_profile": 151,
+    "browser_cases": 546,
+    "fixture_bytes": 835056
+  },
+  "gpu": {
+    "tests": 6,
+    "winit_frames": 4
+  },
+  "package_files": {
+    "linux": 454,
+    "windows": 454
+  },
+  "browser": {
+    "original": "failed",
+    "diagnostic": "failed",
+    "checks_per_dpr": 1641,
+    "failed_stage": "final DPR-2 capture",
+    "receipt": "browser-24f605-hosted.json"
+  },
+  "evidence": [
+    {
+      "job_id": 129087666427,
+      "lines": [
+        "2026-11-09T09:47:18.2870871Z Original managed script actions: 914017 cases / 1018791924 exact bytes; 546 browser cases / 835056 bytes"
+      ]
+    },
+    {
+      "job_id": 129087665970,
+      "lines": [
+        "2026-11-09T09:45:45.5309685Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.94s",
+        "2026-11-09T09:45:45.6260484Z \u001b[36;1mtimeout 60s xvfb-run -a target/debug/examples/winit --frames 4\u001b[0m"
+      ]
+    },
+    {
+      "job_id": 129087666587,
+      "lines": [
+        "2026-11-09T10:03:34.3922326Z     Packaged 454 files, 9.2MiB (1.5MiB compressed)"
+      ]
+    },
+    {
+      "job_id": 129087666686,
+      "lines": [
+        "2026-11-09T09:50:09.6639726Z     Packaged 454 files, 9.3MiB (1.5MiB compressed)\r"
+      ]
+    }
+  ]
+}

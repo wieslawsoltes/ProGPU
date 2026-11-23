@@ -1,0 +1,32 @@
+{
+  "utc": "2026-11-09T07:36:59.693544+00:00",
+  "removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-preparation-package-6nbki05x",
+      "logical_bytes": 401102566
+    },
+    {
+      "path": "/tmp/progpu-rust-preparation-profile",
+      "logical_bytes": 35120555
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2597537
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148295
+    }
+  ],
+  "logical_bytes_removed": 440480748,
+  "preserved": "Reusable Cargo dependency builds, downloads and tool caches; compact validated Instruments exports, complete browser/source/performance/package receipts and fixtures. Only task-owned completed outputs removed.",
+  "crate_only_clean": {
+    "default": "Removed 24087 files, 1.8GiB total",
+    "release": "Removed 39 files, 16.1MiB total",
+    "wasm": "Removed 21 files, 42.6MiB total",
+    "wasm-release": "Removed 15 files, 16.1MiB total"
+  },
+  "dependency_build_cache_remaining": "1.3 GiB",
+  "available_disk_after": "13 GiB",
+  "final_archive_removed_bytes": 1511795
+}

@@ -1,0 +1,15 @@
+{
+  "utc": "2026-11-09T07:36:26.240807+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "archive_files_at_fresh_build": 419,
+  "exact_original_files_at_fresh_build": 417,
+  "fresh_build_archive_sha256": "0146c5135cc8fd943565df4056c6b67b1da0fbf1bb9698acf69c1804ceb56e90",
+  "scope": "Independent package source/resources compiled for native all targets/features and WASM. Compact package/cleanup receipts finalized afterward.",
+  "final_archive_files": 421,
+  "final_exact_original_files": 419,
+  "unchanged_source_resource_document_files": 304,
+  "final_archive_sha256": "4ebcb6a1fd70b9497d9bbb61a2c3ac30ca52741f3768f746080a2ce0b4b40f04",
+  "post_verification_changes": "Only compact package and cleanup receipts finalized after exact final archive verification."
+}

@@ -1,0 +1,43 @@
+{
+  "owned_paths_removed": [
+    {
+      "path": "/tmp/progpu-rust-line-package-check",
+      "logical_bytes": 500200776
+    },
+    {
+      "path": "/tmp/progpu-rust-line-benchmark-owned",
+      "logical_bytes": 839529
+    },
+    {
+      "path": "/tmp/progpu-rust-line-native-benchmark",
+      "logical_bytes": 209216
+    },
+    {
+      "path": "target/release/examples/line_break_benchmark-76f5a40e1b3256ee.d",
+      "logical_bytes": 348
+    },
+    {
+      "path": "target/release/examples/line_break_benchmark.d",
+      "logical_bytes": 4001
+    },
+    {
+      "path": "target/release/examples/line_break_benchmark-76f5a40e1b3256ee",
+      "logical_bytes": 603552
+    },
+    {
+      "path": "target/release/examples/line_break_benchmark",
+      "logical_bytes": 603552
+    },
+    {
+      "path": "eng/__pycache__/progpu-benchmark-rust-line-break.cpython-314.pyc",
+      "logical_bytes": 8274
+    },
+    {
+      "path": "eng/__pycache__/progpu-test-rust-line-break-conformance.cpython-314.pyc",
+      "logical_bytes": 2647
+    }
+  ],
+  "automatic_baseline_bytes_removed": 1049759,
+  "logical_bytes_total": 503521654,
+  "notes": "Original-source and Unicode fixture harnesses also clean their temporary directories; their unmeasured bytes are not included. Active shared build dependencies and compact receipts remain."
+}

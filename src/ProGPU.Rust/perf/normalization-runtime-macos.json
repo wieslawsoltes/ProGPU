@@ -1,0 +1,25 @@
+{
+  "captured_utc": "2026-11-08T23:27:28.648927+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "dotnet_info": ".NET SDK:\n Version:           10.0.403\n Commit:            5a2162bea6\n Workload version:  10.0.400-manifests.a00bebb6\n MSBuild version:   18.9.15+5a2162bea\n\nRuntime Environment:\n OS Name:     Mac OS X\n OS Version:  26.6\n OS Platform: Darwin\n RID:         osx-arm64\n Base Path:   /private/tmp/progpu-rust-dotnet/sdk/10.0.403/\n\n.NET workloads installed:\nThere are no installed workloads to display.\nConfigured to use workload sets when installing new manifests.\nNo workload sets are installed. Run \"dotnet workload restore\" to install a workload set.\n\nHost:\n  Version:      10.0.14\n  Architecture: arm64\n  Commit:       0427b9abbe\n\n.NET SDKs installed:\n  10.0.403 [/private/tmp/progpu-rust-dotnet/sdk]\n\n.NET runtimes installed:\n  Microsoft.AspNetCore.App 10.0.14 [/private/tmp/progpu-rust-dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.NETCore.App 10.0.14 [/private/tmp/progpu-rust-dotnet/shared/Microsoft.NETCore.App]\n\nOther architectures found:\n  None\n\nEnvironment variables:\n  Not set\n\nglobal.json file:\n  Not found\n\nLearn more:\n  https://aka.ms/dotnet/info\n\nDownload .NET:\n  https://aka.ms/dotnet/download",
+  "method": "Unchanged original managed generator, current runtime defaults, isolated temporary build; complete decomposition and composition inventory comparison.",
+  "qualification": "Diagnostic data provenance only; no gate replacement or runtime/compiler changes; not a complete canonical ordering or shaping comparison.",
+  "generator_sha256": "1f096497f9be825403094f119961242c1e7530f0d72b2d326047446c66f8adc1",
+  "resource_sha256": "da3f8b751ac289987e400e4ea7daacd66ab912dbf868569fb50ce0fd8d9d7dff",
+  "runtime_plan_sha256": "da3f8b751ac289987e400e4ea7daacd66ab912dbf868569fb50ce0fd8d9d7dff",
+  "resource_bytes": 450920,
+  "runtime_plan_bytes": 450920,
+  "resource_counts": [
+    13253,
+    36567,
+    12133
+  ],
+  "runtime_counts": [
+    13253,
+    36567,
+    12133
+  ],
+  "decomposition_differences": [],
+  "composition_differences": [],
+  "temporary_logical_bytes_removed": 798447
+}

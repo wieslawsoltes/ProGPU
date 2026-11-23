@@ -406,3 +406,6 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Rust build artifacts
+/target/

@@ -1,0 +1,15 @@
+{
+  "utc": "2026-11-09T09:41:47.929504+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "archive_files_at_fresh_build": 451,
+  "exact_original_files_at_fresh_build": 449,
+  "fresh_build_archive_sha256": "cc89ae39cb1312df94409757013881a9737aa66375d381dd51b69503c7fbe0cb",
+  "scope": "Independent extracted package sources/resources checked against workspace, compiled with a fresh target. Final compact receipts may be finalized afterward.",
+  "final_archive_files": 454,
+  "final_exact_original_files": 452,
+  "unchanged_source_resource_document_files": 319,
+  "final_archive_sha256": "d7ca7d9f66bb72374c75ccfb9482860ee999cbefbae9f493fb9419273a5afdc6",
+  "post_verification_changes": "Only compact package and cleanup receipts finalized after exact archive verification; all compiled sources, resource bytes and documents match the fresh-build package."
+}

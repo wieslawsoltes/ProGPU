@@ -1,0 +1,16 @@
+{
+  "captured_utc": "2026-11-09T01:12:36.257392+00:00",
+  "package_work_directory_removed": "/private/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-managed-context-package-m9cn2p99",
+  "package_logical_bytes_removed": 531379963,
+  "benchmark_temporary_bytes_removed": 74260617,
+  "unused_benchmark_bytes_removed": 938139,
+  "removed_benchmark_paths": [
+    "target/release/examples/managed_context_benchmark",
+    "target/release/examples/managed_context_benchmark-8e8e0ed1adfb4fbc.d",
+    "target/release/examples/managed_context_benchmark-8e8e0ed1adfb4fbc",
+    "target/release/examples/managed_context_benchmark.d"
+  ],
+  "total_measured_logical_bytes": 606578719,
+  "additional_cleanup": "All source-oracle directories, including exhaustive raw packets and temporary .NET builds, auto-remove on success or failure; excluded from this measured total.",
+  "retained": "Active root build/dependency caches, current browser/package evidence and compact receipts."
+}

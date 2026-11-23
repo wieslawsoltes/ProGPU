@@ -1,0 +1,33 @@
+{
+  "removed": [
+    {
+      "path": "artifacts/progpu-rust/browser",
+      "files": 6,
+      "logical_bytes": 2533442
+    },
+    {
+      "path": "artifacts/progpu-rust/browser-results",
+      "files": 3,
+      "logical_bytes": 148144
+    },
+    {
+      "path": "artifacts/progpu-rust/browser-process-diagnostic",
+      "files": 3,
+      "logical_bytes": 219981
+    },
+    {
+      "path": "target/package/progpu-0.1.0.crate",
+      "files": 1,
+      "logical_bytes": 1086724
+    },
+    {
+      "path": "/tmp/progpu-rust-browser-490835d4b",
+      "files": 2,
+      "logical_bytes": 75530
+    }
+  ],
+  "total_logical_bytes": 4063821,
+  "crate_debug": "Removed 0 files",
+  "crate_wasm_release": "Removed 23 files, 15.4MiB total",
+  "preserved": "Reusable dependency build/tool/browser caches and prior Linux failure witnesses remain needed. Original/diagnostic process receipts compacted before removal."
+}

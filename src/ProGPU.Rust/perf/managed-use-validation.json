@@ -1,0 +1,269 @@
+{
+  "utc": "2026-11-09T11:56:23.297377+00:00",
+  "source_runtime": ".NET 10.0.14 / macOS 26.6 / Unicode17_0",
+  "source_actions": {
+    "cases": 1532882,
+    "exact_bytes": 1715629716,
+    "retained_prior_cases": 1324919,
+    "added_cases": 207963,
+    "final_without_fixture_update": "pass",
+    "browser_cases": 1910,
+    "browser_bytes": 2626048
+  },
+  "syllables": {
+    "cases": 5870757,
+    "exact_bytes": 35631822,
+    "font_sha256": "60d952f14b770aec08221b8adee1a1b7d82a8abdc259fb2484de9666a2f45832",
+    "request_sha256": "797ad072dc959cdb62632423a388a6a4545cfccc954412bc7820a8f6f07d9324",
+    "response_sha256": "559c7c935817c0458aa8a5e9fa4ba49782c6924c3dbe701a97f44a369344d486"
+  },
+  "native_tests": {
+    "native": {
+      "passed": 102,
+      "failed": 0,
+      "ignored": 51
+    },
+    "cpu": {
+      "passed": 100,
+      "failed": 0,
+      "ignored": 44
+    }
+  },
+  "strict_native_and_wasm_clippy": "pass",
+  "format_diff": "pass",
+  "browser": {
+    "status": "passed",
+    "browser": "151.0.7922.34",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "headless": true,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache"
+    ],
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "scriptPropertyQueries": 2228228,
+        "scriptPropertyExtractions": 65536,
+        "propertyDigest": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 5733,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 192,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "after": {
+          "frames": 202,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "errors": [],
+        "resized": {
+          "frames": 210,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 800,
+          "height": 559,
+          "dpi": 1
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "scriptPropertyQueries": 2228228,
+        "scriptPropertyExtractions": 65536,
+        "propertyDigest": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 5733,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 65,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "after": {
+          "frames": 75,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "errors": [],
+        "resized": {
+          "frames": 82,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1600,
+          "height": 1118,
+          "dpi": 2
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      }
+    ]
+  },
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Text/UseSyllableMachineData.Generated.cs": "bf573c1c322e203feecf4d6e558dcb86618ab75993955ad78bca5416593e15cc",
+    "src/ProGPU.Rust/src/text/script_actions.rs": "e8a0705484a69497dae96ec2737bf4bf383d86d2b8adf8108e5401d1a60d5d92",
+    "src/ProGPU.Rust/src/text/script_actions/use_shaping.rs": "b81dd5b1965bd5f915adac28618960146d56cc9fad5916f195a3afd8c1d3379a",
+    "src/ProGPU.Rust/src/text/script_actions/use_syllables.rs": "02a4aad0d41fed11a7f96af2a1940f26eea7a2291bfab988fd964f5646c9beca",
+    "src/ProGPU.Rust/src/text/script_actions/use_indices.rs": "2b83977eddd7a6c3b3eac5615d1dfd55f3ed7b73ff7782feea37ff92b90105f8",
+    "src/ProGPU.Rust/tests/managed_use_syllables.cs": "f9542b22573254b7359dccb7d91dd00647e3e685ee4f1ddf69e2388358f8a5bf",
+    "src/ProGPU.Rust/tests/support/managed_use_cases.rs": "ec928771e7a1fa07a912c37918f7370ea060c2fed91732ab00ad349edf2df153",
+    "eng/progpu-test-rust-use-syllables.py": "7bb4d582818bc7cd186182bb11260e81374b478204a0a045e16acf21c9976e87"
+  },
+  "provenance_audit": "Original ProGPU-owned wrappers/stages and independently authored public-grammar/API-observation parser. Generated provider bytes hashed opaquely for identity; no arrays, machine state numbers or lexer structure used as implementation input. Literal category contracts observed through the original API. Prior audited branch history through 41b32087b unchanged; no original source, shader or compiler-policy edits. Current source and branch diff audited for foreign implementation or accidental vendoring.",
+  "toolchain": "cargo/rustc 1.90.0",
+  "performance": "Matched full CPU-stage outputs and three before/after/C# trials plus paired Instruments exports; see managed-use-baseline.json and managed-use-time-profiler.json. No allocator, memory, GPU or full shaping qualification.",
+  "browser_reliability": "Local pass is separate from unresolved hosted DPR 2 device losses; original Myanmar failure and diagnostic evidence retained."
+}

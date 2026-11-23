@@ -1,0 +1,16 @@
+{
+  "commit": "40c6959804029befbc080f93aa11736bf8d0bc23",
+  "run_id": 42538980147,
+  "linux_job": 128909473940,
+  "linux": "success",
+  "windows_portable": "success",
+  "gpu": "success",
+  "browser": "failure",
+  "macos": "cancelled",
+  "native_digest_bytes": 57233864,
+  "managed_digest_bytes": 201347072,
+  "native_normalization_bytes": 248877000,
+  "managed_normalization_bytes": 51423570,
+  "browser_failure": "Both original and diagnostic final DPR 2: WebGPU device lost: Unknown: A valid external Instance reference no longer exists.",
+  "qualification": "Prior committed lookup controls; does not qualify new selection work or close release gates."
+}

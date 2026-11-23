@@ -1,0 +1,27 @@
+{
+  "observed_utc": "2026-11-09T16:53:35.367046+00:00",
+  "previous_head": "ca4ffe16d575c74299f2b72546f940494c5eab2a",
+  "cleanup_status": "deferred: compiler processes active",
+  "scope": "Owned obsolete duplicate external incremental directories; retain newest generation per crate and every inventory modified within one hour; do not delete while compiler processes are active",
+  "removed_incremental_directories": 0,
+  "removed_logical_bytes": 0,
+  "areas": {},
+  "retained": [
+    "Newest incremental inventory per crate and all recently modified state",
+    "Reusable Cargo dependencies",
+    "Original source and compact validation evidence"
+  ],
+  "static_checks": {
+    "native_all_targets_all_features_clippy": "passed",
+    "wasm_browser_clippy": "passed",
+    "cpu_only_strict_clippy": "passed",
+    "format": "passed",
+    "diff_whitespace": "passed"
+  },
+  "new_runtime_benchmark_trace_package_artifacts": false,
+  "runtime_differential_browser_performance_qualification": "deferred until connected stack assembly",
+  "free_gib": {
+    "internal": 37.05,
+    "external": 223.11
+  }
+}

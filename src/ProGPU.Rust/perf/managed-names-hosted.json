@@ -1,0 +1,55 @@
+{
+  "commit": "5ba16d417dcad25498102763c5d801367269c94b",
+  "run_id": 42562281421,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42562281421",
+  "jobs": [
+    {
+      "id": 128981176445,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 128981176548,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128981176549,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128981176664,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 128981176678,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    }
+  ],
+  "browser": {
+    "original_gate": "failed",
+    "diagnostic": "failed",
+    "stage": "final DPR 2 capture",
+    "gpu_process_exit": 512,
+    "device_lost": "A valid external Instance reference no longer exists."
+  },
+  "linux": {
+    "source_rust_vs_csharp_variation": "passed before fixture assertion",
+    "frozen_browser_fixture": "failed",
+    "differences": 24,
+    "field": "authored request, width setting NaN sign only",
+    "linux_bits": "7fc00000",
+    "published_arm64_fixture_bits": "ffc00000",
+    "all_font_and_output_bytes": "identical",
+    "package": "not reached"
+  },
+  "scope": "Historical failing checkpoint retained. Input reproducibility repair is separate from production arithmetic. Original flags, deadlines and browser gates unchanged."
+}

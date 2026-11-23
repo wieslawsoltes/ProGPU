@@ -1,0 +1,1152 @@
+{
+  "commit": "490835d4b661b10b739b85dc1e42d7afd0f0530d",
+  "run_id": 42568005460,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42568005460",
+  "browser_job": 128998682671,
+  "artifact_id": 13652755600,
+  "artifact_zip_sha256": "2a07abbd9f00dd6c7001c148fcaeb004a15cd7fd9cd77038069ee948d58208a9",
+  "browser": "151.0.7922.34",
+  "platform": "linux",
+  "architecture": "x64",
+  "headless": false,
+  "flags": [
+    "--enable-unsafe-webgpu",
+    "--use-angle=swiftshader",
+    "--disable-webgpu-shader-disk-cache",
+    "--enable-features=Vulkan",
+    "--use-vulkan=swiftshader",
+    "--disable-vulkan-surface"
+  ],
+  "original": {
+    "status": "failed",
+    "error": "Error: page.evaluate: WebGPU device is lost",
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 24,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 640,
+          "dpi": 1
+        },
+        "after": {
+          "frames": 34,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 640,
+          "dpi": 1
+        },
+        "resized": {
+          "frames": 39,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 800,
+          "height": 560,
+          "dpi": 1
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "final capture completion",
+        "consoleErrors": [
+          "WebGPU device lost: Unknown: A valid external Instance reference no longer exists."
+        ],
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 10,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1280,
+          "dpi": 2
+        },
+        "after": {
+          "frames": 20,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1280,
+          "dpi": 2
+        },
+        "resized": {
+          "frames": 25,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1600,
+          "height": 1120,
+          "dpi": 2
+        }
+      }
+    ]
+  },
+  "diagnostic": {
+    "status": "failed",
+    "error": "Error: page.evaluate: WebGPU device is lost",
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 22,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 640,
+          "dpi": 1
+        },
+        "after": {
+          "frames": 32,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 640,
+          "dpi": 1
+        },
+        "resized": {
+          "frames": 37,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 800,
+          "height": 560,
+          "dpi": 1
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        },
+        "queue_totals": {
+          "submissions": 191,
+          "completed": 191,
+          "pending": 0,
+          "maxPending": 15
+        },
+        "completed_tail": [
+          {
+            "ms": 34830.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 189,
+            "elapsedMs": 1392.8,
+            "pending": 2
+          },
+          {
+            "ms": 34830.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 190,
+            "elapsedMs": 1392.5,
+            "pending": 1
+          },
+          {
+            "ms": 35378.4,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 191,
+            "elapsedMs": 1917,
+            "pending": 0
+          }
+        ],
+        "pending_submissions": [],
+        "slow": [
+          {
+            "ms": 3230.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 1,
+            "elapsedMs": 1924.9,
+            "pending": 3
+          },
+          {
+            "ms": 3230.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 2,
+            "elapsedMs": 1920.7,
+            "pending": 2
+          },
+          {
+            "ms": 4074.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 3,
+            "elapsedMs": 2755.5,
+            "pending": 2
+          },
+          {
+            "ms": 4994.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 4,
+            "elapsedMs": 3662.7,
+            "pending": 2
+          },
+          {
+            "ms": 5857.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 5,
+            "elapsedMs": 2597.5,
+            "pending": 2
+          },
+          {
+            "ms": 6734.6,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 6,
+            "elapsedMs": 2624.4,
+            "pending": 2
+          },
+          {
+            "ms": 7543.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 7,
+            "elapsedMs": 2523.6,
+            "pending": 2
+          },
+          {
+            "ms": 8365.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 8,
+            "elapsedMs": 2484.2,
+            "pending": 2
+          },
+          {
+            "ms": 9171.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 9,
+            "elapsedMs": 2411.5,
+            "pending": 2
+          },
+          {
+            "ms": 9943,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 10,
+            "elapsedMs": 2377.3,
+            "pending": 2
+          },
+          {
+            "ms": 10698.9,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 11,
+            "elapsedMs": 2313.4,
+            "pending": 2
+          },
+          {
+            "ms": 11470.3,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 12,
+            "elapsedMs": 2277.7,
+            "pending": 2
+          },
+          {
+            "ms": 12277.5,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 13,
+            "elapsedMs": 2313.5,
+            "pending": 2
+          },
+          {
+            "ms": 13055.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 14,
+            "elapsedMs": 2335.1,
+            "pending": 2
+          },
+          {
+            "ms": 13862,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 15,
+            "elapsedMs": 2361.6,
+            "pending": 2
+          },
+          {
+            "ms": 14641.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 16,
+            "elapsedMs": 2341.3,
+            "pending": 2
+          },
+          {
+            "ms": 15452.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 17,
+            "elapsedMs": 2371.9,
+            "pending": 2
+          },
+          {
+            "ms": 16338.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 18,
+            "elapsedMs": 2454.7,
+            "pending": 2
+          },
+          {
+            "ms": 17178.5,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 19,
+            "elapsedMs": 2515.9,
+            "pending": 2
+          },
+          {
+            "ms": 18036.5,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 20,
+            "elapsedMs": 2559.7,
+            "pending": 2
+          },
+          {
+            "ms": 19834.5,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 21,
+            "elapsedMs": 3471.1,
+            "pending": 2
+          },
+          {
+            "ms": 19834.5,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 22,
+            "elapsedMs": 2634.4,
+            "pending": 1
+          },
+          {
+            "ms": 20440.3,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 23,
+            "elapsedMs": 2378.4,
+            "pending": 0
+          },
+          {
+            "ms": 22373.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 26,
+            "elapsedMs": 1028.2,
+            "pending": 1
+          },
+          {
+            "ms": 22373.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 27,
+            "elapsedMs": 1027.9,
+            "pending": 0
+          },
+          {
+            "ms": 22500.7,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 32,
+            "elapsedMs": 103.9,
+            "pending": 1
+          },
+          {
+            "ms": 22500.7,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 33,
+            "elapsedMs": 103.8,
+            "pending": 0
+          },
+          {
+            "ms": 22620,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 37,
+            "elapsedMs": 104.2,
+            "pending": 2
+          },
+          {
+            "ms": 22627.7,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 38,
+            "elapsedMs": 111.6,
+            "pending": 1
+          },
+          {
+            "ms": 22627.7,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 39,
+            "elapsedMs": 111.6,
+            "pending": 0
+          },
+          {
+            "ms": 22969.7,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 56,
+            "elapsedMs": 104.3,
+            "pending": 1
+          },
+          {
+            "ms": 22969.7,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 57,
+            "elapsedMs": 104.3,
+            "pending": 0
+          },
+          {
+            "ms": 23520.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 86,
+            "elapsedMs": 100.7,
+            "pending": 1
+          },
+          {
+            "ms": 23520.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 87,
+            "elapsedMs": 100.5,
+            "pending": 0
+          },
+          {
+            "ms": 23638.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 92,
+            "elapsedMs": 102.5,
+            "pending": 1
+          },
+          {
+            "ms": 23638.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 93,
+            "elapsedMs": 102.5,
+            "pending": 0
+          },
+          {
+            "ms": 31418,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 174,
+            "elapsedMs": 6652.3,
+            "pending": 14
+          },
+          {
+            "ms": 31418,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 175,
+            "elapsedMs": 6652.2,
+            "pending": 13
+          },
+          {
+            "ms": 31418.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 176,
+            "elapsedMs": 6652.3,
+            "pending": 12
+          },
+          {
+            "ms": 31418.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 177,
+            "elapsedMs": 6652.3,
+            "pending": 11
+          },
+          {
+            "ms": 31418.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 178,
+            "elapsedMs": 6652.2,
+            "pending": 10
+          },
+          {
+            "ms": 31418.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 179,
+            "elapsedMs": 6652.1,
+            "pending": 9
+          },
+          {
+            "ms": 31418.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 180,
+            "elapsedMs": 6652.1,
+            "pending": 8
+          },
+          {
+            "ms": 31418.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 181,
+            "elapsedMs": 6651.5,
+            "pending": 7
+          },
+          {
+            "ms": 31418.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 182,
+            "elapsedMs": 6651.5,
+            "pending": 6
+          },
+          {
+            "ms": 31418.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 183,
+            "elapsedMs": 6651.4,
+            "pending": 5
+          },
+          {
+            "ms": 31418.3,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 184,
+            "elapsedMs": 6650.8,
+            "pending": 4
+          },
+          {
+            "ms": 32749.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 185,
+            "elapsedMs": 7981.9,
+            "pending": 3
+          },
+          {
+            "ms": 32749.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 186,
+            "elapsedMs": 7980.8,
+            "pending": 2
+          },
+          {
+            "ms": 33418.9,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 187,
+            "elapsedMs": 8646.9,
+            "pending": 1
+          },
+          {
+            "ms": 34110.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 188,
+            "elapsedMs": 9329,
+            "pending": 3
+          },
+          {
+            "ms": 34830.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 189,
+            "elapsedMs": 1392.8,
+            "pending": 2
+          },
+          {
+            "ms": 34830.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 190,
+            "elapsedMs": 1392.5,
+            "pending": 1
+          },
+          {
+            "ms": 35378.4,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 191,
+            "elapsedMs": 1917,
+            "pending": 0
+          }
+        ]
+      },
+      {
+        "dpr": 2,
+        "stage": "final capture completion",
+        "consoleErrors": [
+          "WebGPU device lost: Unknown: A valid external Instance reference no longer exists."
+        ],
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 9,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1280,
+          "dpi": 2
+        },
+        "after": {
+          "frames": 19,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1280,
+          "dpi": 2
+        },
+        "resized": {
+          "frames": 24,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1600,
+          "height": 1120,
+          "dpi": 2
+        },
+        "queue_totals": {
+          "submissions": 178,
+          "completed": 160,
+          "pending": 18,
+          "maxPending": 18
+        },
+        "completed_tail": [
+          {
+            "ms": 31768.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 158,
+            "elapsedMs": 72.2,
+            "pending": 0
+          },
+          {
+            "ms": 31771,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 159,
+            "elapsedMs": 2.7,
+            "pending": 1
+          },
+          {
+            "ms": 31771,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 160,
+            "elapsedMs": 2.6,
+            "pending": 0
+          }
+        ],
+        "pending_submissions": [
+          {
+            "ms": 31777,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 161,
+            "pending": 1
+          },
+          {
+            "ms": 31777,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 162,
+            "pending": 2
+          },
+          {
+            "ms": 31777,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 163,
+            "pending": 3
+          },
+          {
+            "ms": 31777.1,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 164,
+            "pending": 4
+          },
+          {
+            "ms": 31777.1,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 165,
+            "pending": 5
+          },
+          {
+            "ms": 31777.2,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 166,
+            "pending": 6
+          },
+          {
+            "ms": 31777.2,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 167,
+            "pending": 7
+          },
+          {
+            "ms": 31777.2,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 168,
+            "pending": 8
+          },
+          {
+            "ms": 31777.2,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 169,
+            "pending": 9
+          },
+          {
+            "ms": 31777.2,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 170,
+            "pending": 10
+          },
+          {
+            "ms": 31777.9,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 171,
+            "pending": 11
+          },
+          {
+            "ms": 31778.3,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 172,
+            "pending": 12
+          },
+          {
+            "ms": 31780.7,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 173,
+            "pending": 13
+          },
+          {
+            "ms": 31781.9,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 174,
+            "pending": 14
+          },
+          {
+            "ms": 31783.9,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 175,
+            "pending": 15
+          },
+          {
+            "ms": 31802.2,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 176,
+            "pending": 16
+          },
+          {
+            "ms": 31802.8,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 177,
+            "pending": 17
+          },
+          {
+            "ms": 31811.3,
+            "kind": "submit",
+            "queue": 1,
+            "sequence": 178,
+            "pending": 18
+          }
+        ],
+        "slow": [
+          {
+            "ms": 5401.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 1,
+            "elapsedMs": 4343.7,
+            "pending": 3
+          },
+          {
+            "ms": 5401.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 2,
+            "elapsedMs": 4338.1,
+            "pending": 2
+          },
+          {
+            "ms": 8332,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 3,
+            "elapsedMs": 7260.5,
+            "pending": 2
+          },
+          {
+            "ms": 11480.9,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 4,
+            "elapsedMs": 10399.8,
+            "pending": 2
+          },
+          {
+            "ms": 14553,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 5,
+            "elapsedMs": 9121.1,
+            "pending": 2
+          },
+          {
+            "ms": 17467.5,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 6,
+            "elapsedMs": 9102.9,
+            "pending": 2
+          },
+          {
+            "ms": 20240.8,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 7,
+            "elapsedMs": 8726.4,
+            "pending": 2
+          },
+          {
+            "ms": 22827.1,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 8,
+            "elapsedMs": 8245,
+            "pending": 2
+          },
+          {
+            "ms": 25265.3,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 9,
+            "elapsedMs": 7766.4,
+            "pending": 1
+          },
+          {
+            "ms": 27681.6,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 10,
+            "elapsedMs": 7415.1,
+            "pending": 0
+          },
+          {
+            "ms": 29537.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 13,
+            "elapsedMs": 966.5,
+            "pending": 1
+          },
+          {
+            "ms": 29537.2,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 14,
+            "elapsedMs": 966,
+            "pending": 0
+          },
+          {
+            "ms": 29753.4,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 25,
+            "elapsedMs": 101,
+            "pending": 1
+          },
+          {
+            "ms": 29753.4,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 26,
+            "elapsedMs": 101,
+            "pending": 0
+          },
+          {
+            "ms": 30062.4,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 43,
+            "elapsedMs": 100.7,
+            "pending": 1
+          },
+          {
+            "ms": 30062.4,
+            "kind": "submit-completed",
+            "queue": 1,
+            "sequence": 44,
+            "elapsedMs": 100.6,
+            "pending": 0
+          },
+          {
+            "ms": 54102.1,
+            "kind": "device-lost",
+            "reason": "unknown",
+            "message": "A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.5,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 161,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.5,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 162,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.5,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 163,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.5,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 164,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.5,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 165,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.5,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 166,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.5,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 167,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 168,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 169,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 170,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 171,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 172,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 173,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 174,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 175,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 176,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 177,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          },
+          {
+            "ms": 54102.6,
+            "kind": "submit-rejected",
+            "queue": 1,
+            "sequence": 178,
+            "error": "OperationError: A valid external Instance reference no longer exists."
+          }
+        ]
+      }
+    ]
+  },
+  "scope": "Both original and diagnostic gates failed. Pending queue work narrows observation; no root-cause attribution or performance/platform qualification.",
+  "source_receipt_sha256": {
+    "original.json": "ec91e887c81d2ce8b167fa9a0b7ee8421e8bd184bb0b795be195289f3b2f66eb",
+    "diagnostic.json": "78ce173061bfb0619cee7e57866e09fd3e91cb7d8d20cffb96c407a5c86aeacb"
+  }
+}

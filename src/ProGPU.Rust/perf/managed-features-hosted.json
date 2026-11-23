@@ -1,0 +1,36 @@
+{
+  "captured_utc": "2026-11-09T01:11:24.085446+00:00",
+  "commit": "8c588eef27912716cd2abca52b77551b050276c9",
+  "run_id": 42542282080,
+  "jobs": {
+    "linux": {
+      "id": 128919649662,
+      "conclusion": "success",
+      "full_source_oracles_and_package": true,
+      "managed_feature_records": 327015,
+      "managed_feature_bytes": 27595740
+    },
+    "windows": {
+      "id": 128919649529,
+      "conclusion": "success"
+    },
+    "gpu": {
+      "id": 128919649605,
+      "conclusion": "success"
+    },
+    "browser": {
+      "id": 128919649439,
+      "conclusion": "failure",
+      "original": "final DPR 2 device loss",
+      "diagnostic": "final DPR 2 device loss",
+      "message": "A valid external Instance reference no longer exists",
+      "original_loss_utc": "2026-11-09T00:54:38.9187801Z",
+      "diagnostic_loss_utc": "2026-11-09T00:55:54.8084485Z"
+    },
+    "macos": {
+      "id": 128919649724,
+      "conclusion": "cancelled"
+    }
+  },
+  "qualification": "Original and diagnostic failure remain failures; preceding original pass establishes intermittency, not reliability. New managed context changes require separate hosted qualification."
+}

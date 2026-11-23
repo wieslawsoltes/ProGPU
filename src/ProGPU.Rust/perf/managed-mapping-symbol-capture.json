@@ -1,0 +1,29 @@
+{
+  "method": "Actual TtfFont.GetGlyphIndex over authored identity-PUA cmap and complete BMP; nonzero nonidentity observations only. No source-array transcription.",
+  "records": [
+    {
+      "page": "0xb200",
+      "queries": 66304,
+      "mappings": 240,
+      "sha256": "23a8e3139f151316965f08df1a5de6f4979fe12d13acfc7aef41414d8b8c6338",
+      "captured_output_sha256": "c8e2893abfb6370213dfef3216fbb973673eb41812f4f4c3bc106b9089d619f3"
+    },
+    {
+      "page": "0xb300",
+      "queries": 66304,
+      "mappings": 285,
+      "sha256": "40cc719de6e22388c04f55d99d2f564d2f8c41d5a59ce13ce9b5253ec45023f9",
+      "captured_output_sha256": "50af7667cb717b8627b75e247370eee04e7e2493d4e598cdc808cc448117707a"
+    }
+  ],
+  "captured_utc": "2026-11-09T05:18:51.784652+00:00",
+  "check": "pass",
+  "pua_direct_mapping_holes_per_page": 768,
+  "source_sha256": {
+    "src/ProGPU.Text/SfntFontFace.cs": "4639127d2390813ae578d93a5a18cd5d4cd613235ac704b8d5d61a1123393e0a",
+    "src/ProGPU.Text/TtfFont.cs": "7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b",
+    "src/ProGPU.Text/ArabicFallbackData.Generated.cs": "3e4585ff2d8e1fda7af4362c9a3f91862a5a630a1052e47d54c34ae74eacd4f9",
+    "src/ProGPU.Rust/tests/managed_mapping.cs": "b2a7ff65d4b1dc34aa91fdc03c2878250f717c2cdb2913c373feabe4e29628b0",
+    "eng/progpu-generate-rust-symbol-maps.py": "c227a45411606a2f693224d31e1db1ff1f5ea5657d5393e01d0bc8ea6ee46a67"
+  }
+}

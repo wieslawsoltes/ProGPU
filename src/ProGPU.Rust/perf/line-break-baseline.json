@@ -1,0 +1,353 @@
+{
+  "method": "5 warmups, 40 serial measured rounds; resolution plus identical interleaved class/boundary hashing; decoding/allocation outside timing",
+  "qualification": "Baseline only; original default compiler/JIT settings; no full-stack, worst-case scaling or steady-state managed JIT claim. Further optimization requires Instruments evidence.",
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "cpp": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "dotnet": "10.0.403",
+  "cpp_flags": "-std=c++20 -O2 -Wall -Wextra -Werror",
+  "source_sha256": {
+    "src/ProGPU.Rust/tests/native_line_break_benchmark.cpp": "36ae4fc3ab65e9a23775879fb8aef09994a14df060022d6d100507c237be7462",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode.cpp": "534f4879bdf4c0a8b77db3116e895a89c9eb780a7579387a91b04f7590f9889c",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode_grapheme.cpp": "0451993c4caf4c33a3b1ffc4f94bdaaabfb3e8adf3c29261c55595ef43c23f0e",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode_line_break.cpp": "9ebe66e0a22636a564cebf166a86176dbc3540526f555f561e82a7578201ca16",
+    "src/ProGPU.Rust/tests/managed_line_break_benchmark.cs": "55486c3eb28759d8db618ff8b6c925e384f072e1efd84e502c5043c5717ace07",
+    "src/ProGPU.Text/UnicodeLineBreakResolver.cs": "857501ffc37e4e534574da0d2c3d8d2bd9890194e8e23e6e136488fcd80d9bef",
+    "src/ProGPU.Text/UnicodeLineBreakData.Generated.cs": "c6c7230886868a1f96c16ce2f8e89740f634fc6e96cd1955763a21f6c5711348",
+    "src/ProGPU.Text/UnicodeGraphemeData.Generated.cs": "334bd2b2073fca0f524b733443e638b3a4e6a8cdeff778be63252a141589f218",
+    "src/ProGPU.Rust/examples/line_break_benchmark.rs": "9563e5e1027bcbfe6ba8a7a835e178d3533645b97535caf61adc5c9cbdf38c4d",
+    "src/ProGPU.Rust/src/text/unicode/line_break.rs": "3217857aa1d2b6f23691f2f05a9de8197fa4549193cc0899fec9e96daea8d663",
+    "src/ProGPU.Rust/src/text/unicode/data.rs": "ae57dcde27d959504e0c3efa31a91aed33081a1d2231262295ac12c17954c84a"
+  },
+  "binary_sha256": {
+    "rust": "1c2f1611327875162cd9b4e08982f5af93cb89c8218bc6056e98a096cf0672cb",
+    "cpp": "21ba790349de9456933b4edc2406bbfe32e41805b496e63916f6d522dbac266f",
+    "managed": "24a85342267534c16585cde9e87ea6f87828047b186f3bfe376db8e8cb1ad650"
+  },
+  "inputs": [
+    {
+      "kind": "ascii",
+      "mode": "unicode",
+      "repeats": 1,
+      "utf16_le_sha256": "d0359c089daabe8965b628087590ae4985227b5ee60adb1743c3e0ae6e06d3b2",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=30 scalars=30 scratch_bytes=30 checksum=441534366091520999 round_us_p50=1.625 p95=1.667 p99=1.708"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=30 scalars=30 scratch_bytes=30 checksum=441534366091520999 round_us_p50=1.250 p95=1.292 p99=1.292"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=30 scalars=30 scratch_bytes=30 checksum=441534366091520999 round_us_p50=14.300 p95=17.600 p99=19.000"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "unicode",
+      "repeats": 256,
+      "utf16_le_sha256": "9e165e7d6b17d77367b6abbe86dd2fccbd867088510ebda61d396696033bfd70",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=7680 scalars=7680 scratch_bytes=7680 checksum=11377137991383514636 round_us_p50=427.583 p95=458.250 p99=490.000"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=7680 scalars=7680 scratch_bytes=7680 checksum=11377137991383514636 round_us_p50=356.250 p95=381.917 p99=427.417"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=7680 scalars=7680 scratch_bytes=7680 checksum=11377137991383514636 round_us_p50=2489.800 p95=2653.000 p99=2742.100"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "unicode",
+      "repeats": 2048,
+      "utf16_le_sha256": "718e08e32c63387c2eb43a9b354cd8951bbded23e5c88333fa964926516145d6",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=61440 scalars=61440 scratch_bytes=61440 checksum=1185772590131650060 round_us_p50=3457.209 p95=3590.541 p99=3612.375"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=61440 scalars=61440 scratch_bytes=61440 checksum=1185772590131650060 round_us_p50=2800.417 p95=2948.500 p99=3171.625"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=61440 scalars=61440 scratch_bytes=61440 checksum=1185772590131650060 round_us_p50=4436.600 p95=18826.100 p99=19702.900"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "edit",
+      "repeats": 1,
+      "utf16_le_sha256": "d0359c089daabe8965b628087590ae4985227b5ee60adb1743c3e0ae6e06d3b2",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=30 scalars=30 scratch_bytes=30 checksum=441534366091520999 round_us_p50=1.708 p95=1.709 p99=1.833"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=30 scalars=30 scratch_bytes=30 checksum=441534366091520999 round_us_p50=1.416 p95=1.417 p99=1.458"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "edit",
+      "repeats": 256,
+      "utf16_le_sha256": "9e165e7d6b17d77367b6abbe86dd2fccbd867088510ebda61d396696033bfd70",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=7680 scalars=7680 scratch_bytes=7680 checksum=11377137991383514636 round_us_p50=452.875 p95=513.959 p99=563.916"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=7680 scalars=7680 scratch_bytes=7680 checksum=11377137991383514636 round_us_p50=376.250 p95=437.458 p99=456.208"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "edit",
+      "repeats": 2048,
+      "utf16_le_sha256": "718e08e32c63387c2eb43a9b354cd8951bbded23e5c88333fa964926516145d6",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=61440 scalars=61440 scratch_bytes=61440 checksum=1185772590131650060 round_us_p50=3698.542 p95=3852.959 p99=3860.083"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=61440 scalars=61440 scratch_bytes=61440 checksum=1185772590131650060 round_us_p50=3014.625 p95=3116.458 p99=3253.959"
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "unicode",
+      "repeats": 1,
+      "utf16_le_sha256": "8b60b0f23ba38d78b8ecc8002d6b036cec4b6f517c4e61e373c5a7f13735622d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=21 scalars=21 scratch_bytes=21 checksum=10659988155096584831 round_us_p50=1.125 p95=1.209 p99=1.250"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=21 scalars=21 scratch_bytes=21 checksum=10659988155096584831 round_us_p50=0.916 p95=0.917 p99=0.917"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=21 scalars=21 scratch_bytes=21 checksum=10659988155096584831 round_us_p50=10.900 p95=14.000 p99=15.100"
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "unicode",
+      "repeats": 256,
+      "utf16_le_sha256": "402cb30d9036b3cdaa0f254e1a56044a36fecc22b446e91a64fc3793e0d87e10",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=5376 scalars=5376 scratch_bytes=5376 checksum=4520332627509821452 round_us_p50=286.167 p95=357.000 p99=374.792"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=5376 scalars=5376 scratch_bytes=5376 checksum=4520332627509821452 round_us_p50=243.541 p95=254.041 p99=286.750"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=5376 scalars=5376 scratch_bytes=5376 checksum=4520332627509821452 round_us_p50=1714.400 p95=1851.600 p99=1936.000"
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "unicode",
+      "repeats": 2048,
+      "utf16_le_sha256": "16c55b79d77e433634fbe9d2eff8ddd112ed46c5ff9613be1d8832751984b9d9",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=43008 scalars=43008 scratch_bytes=43008 checksum=141244365337472524 round_us_p50=2351.167 p95=2514.541 p99=2619.167"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=43008 scalars=43008 scratch_bytes=43008 checksum=141244365337472524 round_us_p50=2084.375 p95=2236.333 p99=2272.791"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=43008 scalars=43008 scratch_bytes=43008 checksum=141244365337472524 round_us_p50=3166.000 p95=12868.200 p99=13113.400"
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "edit",
+      "repeats": 1,
+      "utf16_le_sha256": "8b60b0f23ba38d78b8ecc8002d6b036cec4b6f517c4e61e373c5a7f13735622d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=21 scalars=21 scratch_bytes=21 checksum=10659988155096584831 round_us_p50=1.208 p95=1.209 p99=1.292"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=21 scalars=21 scratch_bytes=21 checksum=10659988155096584831 round_us_p50=1.000 p95=1.042 p99=1.042"
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "edit",
+      "repeats": 256,
+      "utf16_le_sha256": "402cb30d9036b3cdaa0f254e1a56044a36fecc22b446e91a64fc3793e0d87e10",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=5376 scalars=5376 scratch_bytes=5376 checksum=4520332627509821452 round_us_p50=319.458 p95=364.958 p99=416.000"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=5376 scalars=5376 scratch_bytes=5376 checksum=4520332627509821452 round_us_p50=260.791 p95=290.666 p99=330.000"
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "mode": "edit",
+      "repeats": 2048,
+      "utf16_le_sha256": "16c55b79d77e433634fbe9d2eff8ddd112ed46c5ff9613be1d8832751984b9d9",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=43008 scalars=43008 scratch_bytes=43008 checksum=141244365337472524 round_us_p50=2483.208 p95=2623.625 p99=2658.542"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=43008 scalars=43008 scratch_bytes=43008 checksum=141244365337472524 round_us_p50=2172.625 p95=2299.791 p99=2367.208"
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "unicode",
+      "repeats": 1,
+      "utf16_le_sha256": "4411f448b093705fb320d2d6604e6dce75528b28be457b42235f13d86e062b4a",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=21 scalars=14 scratch_bytes=14 checksum=15433701194719452174 round_us_p50=0.833 p95=0.834 p99=0.917"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=21 scalars=14 scratch_bytes=14 checksum=15433701194719452174 round_us_p50=0.667 p95=0.709 p99=0.750"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=21 scalars=14 scratch_bytes=14 checksum=15433701194719452174 round_us_p50=5.600 p95=10.500 p99=11.300"
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "unicode",
+      "repeats": 256,
+      "utf16_le_sha256": "d21047eceddcd46495b169d17daac8ec643387c98a8397909add0a396e217884",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=5376 scalars=3584 scratch_bytes=3584 checksum=5639945102913496076 round_us_p50=225.250 p95=251.542 p99=311.667"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=5376 scalars=3584 scratch_bytes=3584 checksum=5639945102913496076 round_us_p50=197.125 p95=216.666 p99=265.750"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=5376 scalars=3584 scratch_bytes=3584 checksum=5639945102913496076 round_us_p50=1215.300 p95=1383.100 p99=1434.300"
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "unicode",
+      "repeats": 2048,
+      "utf16_le_sha256": "4916382287e2e1a21b07d4c7e0a23805bbba875b85197b8988b13f8067cd3947",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=43008 scalars=28672 scratch_bytes=28672 checksum=3618130033861217804 round_us_p50=1863.291 p95=1977.375 p99=2012.583"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=43008 scalars=28672 scratch_bytes=28672 checksum=3618130033861217804 round_us_p50=1604.542 p95=1716.125 p99=1723.291"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=43008 scalars=28672 scratch_bytes=28672 checksum=3618130033861217804 round_us_p50=2104.400 p95=9005.300 p99=9168.300"
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "edit",
+      "repeats": 1,
+      "utf16_le_sha256": "4411f448b093705fb320d2d6604e6dce75528b28be457b42235f13d86e062b4a",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=21 scalars=14 scratch_bytes=14 checksum=7684861774448800045 round_us_p50=0.917 p95=1.167 p99=1.250"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=21 scalars=14 scratch_bytes=14 checksum=7684861774448800045 round_us_p50=0.750 p95=0.750 p99=0.792"
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "edit",
+      "repeats": 256,
+      "utf16_le_sha256": "d21047eceddcd46495b169d17daac8ec643387c98a8397909add0a396e217884",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=5376 scalars=3584 scratch_bytes=3584 checksum=6020032064559774220 round_us_p50=250.625 p95=268.541 p99=269.125"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=5376 scalars=3584 scratch_bytes=3584 checksum=6020032064559774220 round_us_p50=204.334 p95=223.666 p99=250.458"
+        }
+      ]
+    },
+    {
+      "kind": "emoji",
+      "mode": "edit",
+      "repeats": 2048,
+      "utf16_le_sha256": "4916382287e2e1a21b07d4c7e0a23805bbba875b85197b8988b13f8067cd3947",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=43008 scalars=28672 scratch_bytes=28672 checksum=4524049178626686476 round_us_p50=2026.250 p95=2109.000 p99=2160.875"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=43008 scalars=28672 scratch_bytes=28672 checksum=4524049178626686476 round_us_p50=1711.875 p95=1828.709 p99=1895.125"
+        }
+      ]
+    }
+  ],
+  "temporary_bytes_removed": 1049759
+}

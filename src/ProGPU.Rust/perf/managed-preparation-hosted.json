@@ -1,0 +1,105 @@
+{
+  "commit": "6838e60231901e41ff44373c4e8a07eaf3c8a20e",
+  "run_id": 42580555505,
+  "run_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42580555505",
+  "source": {
+    "job_id": 129037962100,
+    "runtime": ".NET 10.0.14 Ubuntu 24.04.5 LTS",
+    "normalization_profile": 151,
+    "preparation_cases": 312627,
+    "preparation_exact_bytes": 873271168,
+    "browser_cases": 110,
+    "browser_bytes": 83636,
+    "grapheme_cases": 22256392,
+    "grapheme_exact_bytes": 899691464,
+    "khmer_queries": 1112064,
+    "khmer_positives": 848,
+    "khmer_ranges": 111
+  },
+  "jobs": [
+    {
+      "id": 129037962100,
+      "name": "managed-text-source",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129037962166,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 129037962172,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129037962243,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 129037962254,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129037962324,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "limits": "This is source preparation and current hosted gate evidence, not full shaping/rendering/source-application/package qualification. The original browser workload/deadline, shader/compiler/driver settings remain unchanged; earlier intermittent failures remain unresolved.",
+  "windows": {
+    "job_id": 129037962172,
+    "combined_all_feature_cpu_tests": {
+      "passed": 190,
+      "failed": 0,
+      "ignored": 93
+    },
+    "packaged_files": 421,
+    "strict_native_checks": "pass"
+  },
+  "gpu": {
+    "job_id": 129037962254,
+    "tests": 6,
+    "presented_frames": 4,
+    "geometry_bytes": 29760,
+    "uniform_bytes": 224,
+    "draws": 1,
+    "path_rasters": 3,
+    "atlas_bytes": 1048576,
+    "backend": "Vulkan llvmpipe / Mesa 25.2.8 / LLVM 20.1.2"
+  },
+  "browser": {
+    "job_id": 129037962243,
+    "original": "failed at DPR 2 final capture completion",
+    "diagnostic": "failed at DPR 2 resize",
+    "preparation_checks_per_dpr": 332,
+    "offscreen_pixels_total": 204800,
+    "diagnostic_submissions_completed": 160,
+    "diagnostic_submissions_pending": 15,
+    "exit_code": 512,
+    "process_observation": "not started: former final-capture trigger was not reached",
+    "evidence": "browser-6838e-hosted.json"
+  },
+  "linux": {
+    "job_id": 129037962324,
+    "full_original_source_suite": "pass",
+    "package": "pass",
+    "evidence": [
+      "2026-11-09T07:53:27.4501013Z current managed GSUB: 74981 records / 80999436 exact full record and state bytes",
+      "2026-11-09T07:54:10.2584919Z Original managed dispatch: 262144 feature queries, 1974 stage filters, 26753 full stages / 46818828 exact bytes",
+      "2026-11-09T07:55:24.6152067Z Original managed positioning: 32008 cases, 760086 delta queries, 32008 actual normalized captures, 44353296 exact output bytes",
+      "2026-11-09T07:57:05.7467709Z Original managed mapping: 8436 cases / 5143568 queries / 61756560 exact bytes; 88 browser cases / 455992 bytes",
+      "2026-11-09T07:58:52.4998428Z     Packaged 421 files, 8.0MiB (1.4MiB compressed)"
+    ]
+  },
+  "followup": "9b0b4df3a moves the separate failure-only observer to the existing warm-canvas-burst marker, retaining the final capture fallback, at-most-once admission and original gate/workload/driver/compiler/deadline. Local original and diagnostic DPR1/2 runs pass; actual hosted process/backtrace capture remains pending.",
+  "utc": "2026-11-09 07:59:47 UTC"
+}

@@ -1,0 +1,61 @@
+{
+  "source_sha256": {
+    "src/ProGPU.Text/UnicodeNormalizationData.bin": "da3f8b751ac289987e400e4ea7daacd66ab912dbf868569fb50ce0fd8d9d7dff",
+    "src/ProGPU.Text/UnicodeNormalizationPlan.cs": "ea73ca2061542dec4b9d34d6850cea8ed96b59378bb24b856daf36b7b4ab5cb6",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode_normalization.cpp": "8fde3afee69b59a963ee44a6e9a0bb6d4f1b3d4c165161efe67a0c05027040f1",
+    "src/ProGPU.Rust/src/text/unicode/normalization.rs": "17b4bc8acd63c5e4c9e6b99ffb7d55aecf11d0f951e26403394232030a522e42",
+    "src/ProGPU.Rust/tests/normalization.rs": "3bf59fce9b660c42477cffbbfd75128da58ca7df9d514499cb8f6de8b6c815b9",
+    "src/ProGPU.Rust/tests/native_normalization.cpp": "4ca99f199f0e71f16a304a34a87bc9bcf36c3bd7f00b4dd620bcd567b2beade4",
+    "src/ProGPU.Rust/tests/managed_normalization.cs": "1e13658c6ab1297f3ea0ae5f5adccff5c4f28ba2e2205a5babb634d6dfba67bb"
+  },
+  "native": {
+    "controls": 3668863,
+    "exact_bytes": 248877000,
+    "compiler_defaults": true
+  },
+  "managed": {
+    "controls": 2227607,
+    "exact_bytes": 18078292,
+    "sdk": "10.0.403",
+    "qualification": "Original plan reader plus local canonical .NET operation; complete shaping and arbitrary runtime repertoire remain separate."
+  },
+  "initial_managed_audit": {
+    "differences": 4,
+    "rejections": 4,
+    "code_point": "U+FFFE",
+    "forms": [
+      "FormD",
+      "FormC"
+    ],
+    "resolution": "Explicit managed input admission rejects; native default preserves acceptance. No other scalar differences in the exhaustive local corpus."
+  },
+  "unicode": {
+    "cases": 20034,
+    "checks": 400680,
+    "failures": 0,
+    "forms": [
+      "canonical decomposition",
+      "canonical composition"
+    ],
+    "encodings": [
+      "UTF-8",
+      "UTF-16"
+    ],
+    "fixture_sha256": "5019ffd530751a741900c849c0e010332f142a3612234639bd200b82138a87db"
+  },
+  "browser": {
+    "status": "passed",
+    "controls_per_dpr": 20,
+    "offscreen_pixels": 204800,
+    "presented_dprs": [
+      1,
+      2
+    ],
+    "diagnostics_enabled": false
+  },
+  "package": {
+    "fresh_native_all_features_all_targets": "passed",
+    "fresh_wasm_browser": "passed",
+    "original_resource_verified": true
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "captured_utc": "2026-11-09T02:12:23.330289+00:00",
+  "explicit_removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-managed-executor-50198",
+      "bytes": 74122367
+    },
+    {
+      "path": "/tmp/progpu-rust-managed-gsub-stack.txt",
+      "bytes": 1357031
+    },
+    {
+      "path": "artifacts/progpu-rust/browser",
+      "bytes": 2287771
+    },
+    {
+      "path": "/tmp/progpu-managed-package-check.py",
+      "bytes": 1654
+    },
+    {
+      "path": "/tmp/progpu-managed-design-performance.txt",
+      "bytes": 1178
+    }
+  ],
+  "fresh_package_scratch_bytes_removed": 545922446,
+  "benchmark_scratch_bytes_removed": 74131343,
+  "exact_logical_bytes_removed_excluding_cargo_clean": 697823790,
+  "cargo_clean_package_progpu": "Removed 124855 files, 5.3GiB total",
+  "preserved": "Dependency caches, installed browser/SDK tools and unrelated user builds. Source-oracle successful-run RAII scratch cleanup is additional."
+}

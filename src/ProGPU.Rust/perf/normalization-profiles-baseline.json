@@ -1,0 +1,666 @@
+{
+  "captured_utc": "2026-11-08T23:49:02.174312+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "base_commit": "3119468aeedc49bad66fd3517f18973458aabc90",
+  "method": "Five warmups, forty serial rounds per executable; original defaults. Rust/C++ reuse source/output records; C# String.Normalize allocation is inside its timer. All compare code-point count and hash. Common-character workloads exercise all three profiles without claiming matched full shaping or steady-state JIT.",
+  "load_average": [
+    4.89501953125,
+    17.9892578125,
+    18.3154296875
+  ],
+  "background_compilers": [
+    "25015  17.3 /private/tmp/progpu-rust-dotnet/sdk/10.0.403/Roslyn/bincore/VBCSCompiler"
+  ],
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "cpp": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "dotnet": "10.0.403",
+  "binary_sha256": {
+    "before": "4c16652a8c542048d4370769cbf8e755edfb52e7781b2ad92111fa41ac20e667",
+    "native": "22ad3437d35cc7f415b2c2928bb918811237aee625cdd8064206238bcd24ce3c",
+    "cpp": "f06576c1953a578f06fe87f7a9d3b4341423cb44678c9b68071ba5f39f306820",
+    "managed": "45d956bcf17e63a7cd1e2f0b05c7f185b42e1a81c1e53c6dcb2dfa8468b5b950"
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/tests/native_normalization_benchmark.cpp": "39a068be71ef399d950638ef74e4e814854afe8b630454b9b59688b40df6987c",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode.cpp": "534f4879bdf4c0a8b77db3116e895a89c9eb780a7579387a91b04f7590f9889c",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode_normalization.cpp": "8fde3afee69b59a963ee44a6e9a0bb6d4f1b3d4c165161efe67a0c05027040f1",
+    "src/ProGPU.Rust/tests/managed_normalization_benchmark.cs": "a8b7291e65b1d4d3283792da672b045f0538bfda5d1b172aa3161b1ee8ce9d9a",
+    "src/ProGPU.Rust/examples/normalization_benchmark.rs": "5764a3f1e29c72b23726cafe898f01b7a1efe12541e5d29d96978dea1c782e95",
+    "src/ProGPU.Rust/src/text/unicode/normalization.rs": "c7d63564f9d223e6422d96ae8fd8c6da41e2baaa23bc936a5921b6fb787ec19e",
+    "src/ProGPU.Rust/src/text/unicode/normalization/profile.rs": "4ba44a3cc8c97772e407f1773613d2862cb63ba9f5ffefc53685baf823db9707",
+    "src/ProGPU.Rust/src/text/unicode/normalization/profile_data.rs": "665fea10f6658a998d4514524fd7c18bb6b927d59248ffdc2497ff8eefa39c0e"
+  },
+  "inputs": [
+    {
+      "kind": "ascii",
+      "form": "nfd",
+      "repeats": 1,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.708 p95=0.709 p99=0.750"
+        },
+        {
+          "implementation": "native",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.708 p95=0.750 p99=10.458"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.833 p95=0.875 p99=1.584"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.792 p95=0.875 p99=1.625"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=1.000 p95=1.125 p99=1.583"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.500 p95=0.500 p99=0.500"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=18 scalars=18 output=18 checksum=11847369610821389592 round_us_p50=0.100 p95=0.100 p99=1.100 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "form": "nfd",
+      "repeats": 256,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=173.583 p95=204.208 p99=233.625"
+        },
+        {
+          "implementation": "native",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=172.083 p95=186.458 p99=198.583"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=202.292 p95=222.292 p99=230.875"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=197.042 p95=236.500 p99=257.083"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=200.250 p95=219.916 p99=255.667"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=125.000 p95=129.041 p99=155.667"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=4608 scalars=4608 output=4608 checksum=7235650455821579045 round_us_p50=14.300 p95=17.500 p99=18.500 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "form": "nfd",
+      "repeats": 2048,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1373.875 p95=1505.208 p99=1517.209"
+        },
+        {
+          "implementation": "native",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1386.875 p95=1486.917 p99=1502.583"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1628.208 p95=1772.875 p99=1827.083"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1599.125 p95=2024.667 p99=2599.084"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1623.375 p95=1731.459 p99=1937.666"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1010.000 p95=1094.000 p99=1104.834"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=36864 scalars=36864 output=36864 checksum=3056821989238678309 round_us_p50=52.400 p95=67.100 p99=87.200 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "form": "nfc",
+      "repeats": 1,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.959 p95=1.000 p99=1.041"
+        },
+        {
+          "implementation": "native",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.958 p95=1.000 p99=1.791"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=1.125 p95=1.375 p99=1.875"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=1.042 p95=1.084 p99=1.833"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=1.083 p95=1.125 p99=2.000"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.666 p95=0.667 p99=0.709"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=18 scalars=18 output=18 checksum=11847369610821389592 round_us_p50=0.100 p95=0.100 p99=0.700 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "form": "nfc",
+      "repeats": 256,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=243.709 p95=254.500 p99=288.208"
+        },
+        {
+          "implementation": "native",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=242.500 p95=246.916 p99=262.916"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=273.625 p95=277.959 p99=300.000"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=274.042 p95=320.042 p99=396.458"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=276.708 p95=296.083 p99=335.750"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=172.167 p95=182.791 p99=219.834"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=4608 scalars=4608 output=4608 checksum=7235650455821579045 round_us_p50=14.600 p95=16.000 p99=20.400 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "form": "nfc",
+      "repeats": 2048,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1938.208 p95=2027.917 p99=2098.292"
+        },
+        {
+          "implementation": "native",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1957.125 p95=1990.000 p99=2030.416"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=2186.875 p95=2261.750 p99=2334.417"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=2151.958 p95=2253.417 p99=2269.792"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=2172.584 p95=2246.584 p99=2259.833"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1345.375 p95=1369.459 p99=1384.291"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=36864 scalars=36864 output=36864 checksum=3056821989238678309 round_us_p50=51.100 p95=52.100 p99=56.200 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "form": "nfd",
+      "repeats": 1,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=10 scalars=9 output=14 buffer_bytes=224 checksum=2318852551630024172 round_us_p50=0.500 p95=0.542 p99=0.625"
+        },
+        {
+          "implementation": "native",
+          "output": "units=10 scalars=9 output=14 buffer_bytes=224 checksum=2318852551630024172 round_us_p50=0.500 p95=0.542 p99=1.292"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=10 scalars=9 output=14 buffer_bytes=224 checksum=2318852551630024172 round_us_p50=0.667 p95=0.750 p99=1.416"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=10 scalars=9 output=14 buffer_bytes=224 checksum=2318852551630024172 round_us_p50=0.625 p95=0.667 p99=1.334"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=10 scalars=9 output=14 buffer_bytes=224 checksum=2318852551630024172 round_us_p50=0.625 p95=0.667 p99=1.334"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=10 scalars=9 output=14 buffer_bytes=224 checksum=2318852551630024172 round_us_p50=0.375 p95=0.375 p99=0.417"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=10 scalars=9 output=14 checksum=2318852551630024172 round_us_p50=0.200 p95=0.200 p99=1.300 managed_allocated_bytes_p50=152"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "form": "nfd",
+      "repeats": 256,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=2560 scalars=2304 output=3584 buffer_bytes=57344 checksum=15477076813868605733 round_us_p50=125.541 p95=129.333 p99=129.542"
+        },
+        {
+          "implementation": "native",
+          "output": "units=2560 scalars=2304 output=3584 buffer_bytes=57344 checksum=15477076813868605733 round_us_p50=126.042 p95=130.458 p99=134.458"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=2560 scalars=2304 output=3584 buffer_bytes=57344 checksum=15477076813868605733 round_us_p50=159.333 p95=164.625 p99=167.375"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=2560 scalars=2304 output=3584 buffer_bytes=57344 checksum=15477076813868605733 round_us_p50=155.541 p95=162.125 p99=182.000"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=2560 scalars=2304 output=3584 buffer_bytes=57344 checksum=15477076813868605733 round_us_p50=160.417 p95=175.417 p99=205.916"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=2560 scalars=2304 output=3584 buffer_bytes=57344 checksum=15477076813868605733 round_us_p50=89.875 p95=90.125 p99=97.292"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=2560 scalars=2304 output=3584 checksum=15477076813868605733 round_us_p50=29.700 p95=34.700 p99=38.000 managed_allocated_bytes_p50=8312"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "form": "nfd",
+      "repeats": 2048,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=20480 scalars=18432 output=28672 buffer_bytes=458752 checksum=6667139109791675173 round_us_p50=1017.708 p95=1082.542 p99=1114.041"
+        },
+        {
+          "implementation": "native",
+          "output": "units=20480 scalars=18432 output=28672 buffer_bytes=458752 checksum=6667139109791675173 round_us_p50=1009.375 p95=1054.041 p99=1063.292"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=20480 scalars=18432 output=28672 buffer_bytes=458752 checksum=6667139109791675173 round_us_p50=1299.208 p95=1357.125 p99=1386.000"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=20480 scalars=18432 output=28672 buffer_bytes=458752 checksum=6667139109791675173 round_us_p50=1289.500 p95=1410.292 p99=1639.959"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=20480 scalars=18432 output=28672 buffer_bytes=458752 checksum=6667139109791675173 round_us_p50=1308.375 p95=1346.291 p99=1385.000"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=20480 scalars=18432 output=28672 buffer_bytes=458752 checksum=6667139109791675173 round_us_p50=776.667 p95=838.000 p99=899.250"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=20480 scalars=18432 output=28672 checksum=6667139109791675173 round_us_p50=173.400 p95=185.700 p99=196.700 managed_allocated_bytes_p50=65656"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "form": "nfc",
+      "repeats": 1,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=10 scalars=9 output=10 buffer_bytes=224 checksum=11714967598687831217 round_us_p50=0.709 p95=0.750 p99=0.792"
+        },
+        {
+          "implementation": "native",
+          "output": "units=10 scalars=9 output=10 buffer_bytes=224 checksum=11714967598687831217 round_us_p50=0.791 p95=0.792 p99=1.500"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=10 scalars=9 output=10 buffer_bytes=224 checksum=11714967598687831217 round_us_p50=0.917 p95=1.208 p99=1.542"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=10 scalars=9 output=10 buffer_bytes=224 checksum=11714967598687831217 round_us_p50=0.875 p95=0.917 p99=1.708"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=10 scalars=9 output=10 buffer_bytes=224 checksum=11714967598687831217 round_us_p50=0.875 p95=0.958 p99=1.583"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=10 scalars=9 output=10 buffer_bytes=224 checksum=11714967598687831217 round_us_p50=0.500 p95=0.541 p99=0.583"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=10 scalars=9 output=10 checksum=11714967598687831217 round_us_p50=0.100 p95=0.200 p99=2.200 managed_allocated_bytes_p50=144"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "form": "nfc",
+      "repeats": 256,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=2560 scalars=2304 output=2560 buffer_bytes=57344 checksum=3308273286692986661 round_us_p50=190.666 p95=263.459 p99=283.416"
+        },
+        {
+          "implementation": "native",
+          "output": "units=2560 scalars=2304 output=2560 buffer_bytes=57344 checksum=3308273286692986661 round_us_p50=187.666 p95=197.333 p99=198.459"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=2560 scalars=2304 output=2560 buffer_bytes=57344 checksum=3308273286692986661 round_us_p50=218.083 p95=225.750 p99=231.459"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=2560 scalars=2304 output=2560 buffer_bytes=57344 checksum=3308273286692986661 round_us_p50=215.250 p95=230.792 p99=242.541"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=2560 scalars=2304 output=2560 buffer_bytes=57344 checksum=3308273286692986661 round_us_p50=223.166 p95=236.083 p99=246.916"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=2560 scalars=2304 output=2560 buffer_bytes=57344 checksum=3308273286692986661 round_us_p50=137.917 p95=146.708 p99=173.584"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=2560 scalars=2304 output=2560 checksum=3308273286692986661 round_us_p50=22.500 p95=25.500 p99=27.700 managed_allocated_bytes_p50=6264"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "form": "nfc",
+      "repeats": 2048,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=20480 scalars=18432 output=20480 buffer_bytes=458752 checksum=11756552555922850597 round_us_p50=1507.833 p95=1607.292 p99=1637.625"
+        },
+        {
+          "implementation": "native",
+          "output": "units=20480 scalars=18432 output=20480 buffer_bytes=458752 checksum=11756552555922850597 round_us_p50=1480.542 p95=1538.583 p99=1561.250"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=20480 scalars=18432 output=20480 buffer_bytes=458752 checksum=11756552555922850597 round_us_p50=1774.375 p95=1919.583 p99=1949.250"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=20480 scalars=18432 output=20480 buffer_bytes=458752 checksum=11756552555922850597 round_us_p50=1823.167 p95=1919.250 p99=1955.708"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=20480 scalars=18432 output=20480 buffer_bytes=458752 checksum=11756552555922850597 round_us_p50=1832.166 p95=2008.875 p99=2149.500"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=20480 scalars=18432 output=20480 buffer_bytes=458752 checksum=11756552555922850597 round_us_p50=1111.583 p95=1209.334 p99=1310.250"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=20480 scalars=18432 output=20480 checksum=11756552555922850597 round_us_p50=113.800 p95=130.200 p99=142.000 managed_allocated_bytes_p50=49272"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "form": "nfd",
+      "repeats": 1,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=12 scalars=12 output=12 buffer_bytes=192 checksum=6792489969003885927 round_us_p50=0.500 p95=0.542 p99=0.584"
+        },
+        {
+          "implementation": "native",
+          "output": "units=12 scalars=12 output=12 buffer_bytes=192 checksum=6792489969003885927 round_us_p50=0.500 p95=0.542 p99=1.250"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=12 scalars=12 output=12 buffer_bytes=192 checksum=6792489969003885927 round_us_p50=0.625 p95=0.667 p99=1.292"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=12 scalars=12 output=12 buffer_bytes=192 checksum=6792489969003885927 round_us_p50=0.625 p95=0.667 p99=1.417"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=12 scalars=12 output=12 buffer_bytes=192 checksum=6792489969003885927 round_us_p50=0.625 p95=0.625 p99=1.375"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=12 scalars=12 output=12 buffer_bytes=192 checksum=6792489969003885927 round_us_p50=0.375 p95=0.417 p99=0.458"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=12 scalars=12 output=12 checksum=6792489969003885927 round_us_p50=0.200 p95=0.200 p99=2.400 managed_allocated_bytes_p50=144"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "form": "nfd",
+      "repeats": 256,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=3072 scalars=3072 output=3072 buffer_bytes=49152 checksum=1528894276177803045 round_us_p50=132.583 p95=137.917 p99=163.125"
+        },
+        {
+          "implementation": "native",
+          "output": "units=3072 scalars=3072 output=3072 buffer_bytes=49152 checksum=1528894276177803045 round_us_p50=138.584 p95=150.375 p99=210.916"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=3072 scalars=3072 output=3072 buffer_bytes=49152 checksum=1528894276177803045 round_us_p50=163.042 p95=217.708 p99=239.167"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=3072 scalars=3072 output=3072 buffer_bytes=49152 checksum=1528894276177803045 round_us_p50=160.500 p95=178.791 p99=187.916"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=3072 scalars=3072 output=3072 buffer_bytes=49152 checksum=1528894276177803045 round_us_p50=161.417 p95=179.542 p99=185.959"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=3072 scalars=3072 output=3072 buffer_bytes=49152 checksum=1528894276177803045 round_us_p50=108.042 p95=122.625 p99=125.417"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=3072 scalars=3072 output=3072 checksum=1528894276177803045 round_us_p50=27.200 p95=31.100 p99=32.900 managed_allocated_bytes_p50=6264"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "form": "nfd",
+      "repeats": 2048,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=24576 scalars=24576 output=24576 buffer_bytes=393216 checksum=6830362938098303781 round_us_p50=1084.166 p95=1179.417 p99=1276.250"
+        },
+        {
+          "implementation": "native",
+          "output": "units=24576 scalars=24576 output=24576 buffer_bytes=393216 checksum=6830362938098303781 round_us_p50=1087.541 p95=1214.125 p99=1274.500"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=24576 scalars=24576 output=24576 buffer_bytes=393216 checksum=6830362938098303781 round_us_p50=1311.542 p95=1388.125 p99=1396.208"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=24576 scalars=24576 output=24576 buffer_bytes=393216 checksum=6830362938098303781 round_us_p50=1261.166 p95=1333.791 p99=1415.292"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=24576 scalars=24576 output=24576 buffer_bytes=393216 checksum=6830362938098303781 round_us_p50=1310.209 p95=1406.833 p99=1438.333"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=24576 scalars=24576 output=24576 buffer_bytes=393216 checksum=6830362938098303781 round_us_p50=873.416 p95=912.917 p99=946.042"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=24576 scalars=24576 output=24576 checksum=6830362938098303781 round_us_p50=148.500 p95=166.500 p99=173.600 managed_allocated_bytes_p50=49272"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "form": "nfc",
+      "repeats": 1,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=12 scalars=12 output=9 buffer_bytes=192 checksum=14651609531505267462 round_us_p50=0.708 p95=0.792 p99=9.000"
+        },
+        {
+          "implementation": "native",
+          "output": "units=12 scalars=12 output=9 buffer_bytes=192 checksum=14651609531505267462 round_us_p50=0.708 p95=0.750 p99=1.500"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=12 scalars=12 output=9 buffer_bytes=192 checksum=14651609531505267462 round_us_p50=0.833 p95=0.875 p99=1.667"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=12 scalars=12 output=9 buffer_bytes=192 checksum=14651609531505267462 round_us_p50=0.792 p95=0.834 p99=4.750"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=12 scalars=12 output=9 buffer_bytes=192 checksum=14651609531505267462 round_us_p50=0.875 p95=0.875 p99=1.625"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=12 scalars=12 output=9 buffer_bytes=192 checksum=14651609531505267462 round_us_p50=0.500 p95=0.500 p99=0.542"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=12 scalars=12 output=9 checksum=14651609531505267462 round_us_p50=0.200 p95=0.400 p99=1.600 managed_allocated_bytes_p50=136"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "form": "nfc",
+      "repeats": 256,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=3072 scalars=3072 output=2304 buffer_bytes=49152 checksum=6154331399911179301 round_us_p50=175.417 p95=184.958 p99=192.959"
+        },
+        {
+          "implementation": "native",
+          "output": "units=3072 scalars=3072 output=2304 buffer_bytes=49152 checksum=6154331399911179301 round_us_p50=181.375 p95=206.291 p99=296.875"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=3072 scalars=3072 output=2304 buffer_bytes=49152 checksum=6154331399911179301 round_us_p50=211.375 p95=246.125 p99=282.709"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=3072 scalars=3072 output=2304 buffer_bytes=49152 checksum=6154331399911179301 round_us_p50=203.125 p95=221.125 p99=267.000"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=3072 scalars=3072 output=2304 buffer_bytes=49152 checksum=6154331399911179301 round_us_p50=214.208 p95=230.292 p99=233.584"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=3072 scalars=3072 output=2304 buffer_bytes=49152 checksum=6154331399911179301 round_us_p50=136.792 p95=153.333 p99=178.042"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=3072 scalars=3072 output=2304 checksum=6154331399911179301 round_us_p50=43.700 p95=50.400 p99=54.400 managed_allocated_bytes_p50=4728"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "form": "nfc",
+      "repeats": 2048,
+      "runs": [
+        {
+          "implementation": "before",
+          "output": "units=24576 scalars=24576 output=18432 buffer_bytes=393216 checksum=6045612186099948325 round_us_p50=1512.166 p95=1616.250 p99=1689.834"
+        },
+        {
+          "implementation": "native",
+          "output": "units=24576 scalars=24576 output=18432 buffer_bytes=393216 checksum=6045612186099948325 round_us_p50=1454.125 p95=1558.750 p99=1629.709"
+        },
+        {
+          "implementation": "profile151",
+          "output": "units=24576 scalars=24576 output=18432 buffer_bytes=393216 checksum=6045612186099948325 round_us_p50=1685.000 p95=1778.667 p99=1850.625"
+        },
+        {
+          "implementation": "profile160",
+          "output": "units=24576 scalars=24576 output=18432 buffer_bytes=393216 checksum=6045612186099948325 round_us_p50=1659.125 p95=1737.917 p99=1751.625"
+        },
+        {
+          "implementation": "profile170",
+          "output": "units=24576 scalars=24576 output=18432 buffer_bytes=393216 checksum=6045612186099948325 round_us_p50=1642.875 p95=1694.958 p99=1755.500"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=24576 scalars=24576 output=18432 buffer_bytes=393216 checksum=6045612186099948325 round_us_p50=1123.500 p95=1172.167 p99=1190.167"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=24576 scalars=24576 output=18432 checksum=6045612186099948325 round_us_p50=274.700 p95=308.200 p99=318.300 managed_allocated_bytes_p50=36984"
+        }
+      ]
+    }
+  ],
+  "temporary_logical_bytes_removed": 229127326
+}

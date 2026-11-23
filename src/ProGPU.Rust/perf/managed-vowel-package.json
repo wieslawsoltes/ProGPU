@@ -1,0 +1,15 @@
+{
+  "utc": "2026-11-09T10:09:09.623017+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "archive_files_at_fresh_build": 464,
+  "exact_original_files_at_fresh_build": 462,
+  "fresh_build_archive_sha256": "00ed50ca7e1ab2de1b12f6236d0de5b18b51aa2b4121dfdab3b6ec1bf0aaddec",
+  "scope": "Fresh independent extracted native/WASM builds. Final compact receipts may be finalized afterward; all source/resource/document bytes remain checked.",
+  "final_archive_files": 466,
+  "final_exact_original_files": 464,
+  "unchanged_source_resource_document_files": 325,
+  "final_archive_sha256": "00fadd817d220b8c3dd1e5777fd1380deae423409c53c19a3ea3c48e52b08ffd",
+  "post_verification_changes": "Only compact package and cleanup receipts finalized after exact archive verification; all compiled sources, resource bytes and documents match the final fresh-build package."
+}

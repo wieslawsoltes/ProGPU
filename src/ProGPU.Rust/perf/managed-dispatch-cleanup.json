@@ -1,0 +1,18 @@
+{
+  "captured_utc": "2026-11-09T02:44:33.341459+00:00",
+  "cargo_clean_package": "Removed 19098 files, 1.4GiB total",
+  "fresh_package_temporary_bytes_removed": 553658788,
+  "benchmark_temporary_bytes_removed": 74137505,
+  "additional_removed": [
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2329502
+    },
+    {
+      "path": "/tmp/progpu-dispatch-package-check.py",
+      "logical_bytes": 1848
+    }
+  ],
+  "exact_explicit_logical_bytes_removed": 630127643,
+  "scope": "Task-owned outputs only; dependency and tool caches preserved. Cargo size and exact explicit byte count are logical sizes, not an APFS physical-space claim."
+}

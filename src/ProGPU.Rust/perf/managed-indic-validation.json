@@ -1,0 +1,276 @@
+{
+  "utc": "2026-11-09T12:47:55.885635+00:00",
+  "source_runtime": ".NET 10.0.14 / macOS 26.6 / Unicode17_0",
+  "source_actions": {
+    "cases": 1657647,
+    "exact_bytes": 1931091724,
+    "retained_prior_cases": 1532882,
+    "added_cases": 124765,
+    "final_without_fixture_update": "pass",
+    "browser_cases": 2466,
+    "browser_bytes": 3532552
+  },
+  "syllables": {
+    "cases": 4768385,
+    "exact_bytes": 43831648,
+    "font_sha256": "60d952f14b770aec08221b8adee1a1b7d82a8abdc259fb2484de9666a2f45832",
+    "request_sha256": "47426aab347fff52659a2f17a55387d2cff2998aa83f1d88274be7f3ebe51da2",
+    "response_sha256": "2b551dc65bb0228c9bd42c02cbef5b98b01b287f6eb0401ac43a6804c89e5ea3",
+    "cargo_control": {
+      "cargo_production_parser": "pass",
+      "cases": 4768385,
+      "exact_bytes": 43831648,
+      "binary_sha256": "769518f2f69c336de15ea04eef7a2e494c5e9e8bb9aac9f3973181f516106475",
+      "response_sha256": "2b551dc65bb0228c9bd42c02cbef5b98b01b287f6eb0401ac43a6804c89e5ea3"
+    }
+  },
+  "native_tests": {
+    "native": {
+      "passed": 103,
+      "failed": 0,
+      "ignored": 51
+    },
+    "cpu": {
+      "passed": 101,
+      "failed": 0,
+      "ignored": 44
+    }
+  },
+  "strict_native_and_wasm_clippy": "pass",
+  "format_diff": "pass",
+  "browser": {
+    "status": "passed",
+    "browser": "151.0.7922.34",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "headless": true,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache"
+    ],
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "scriptPropertyQueries": 2228228,
+        "scriptPropertyExtractions": 65536,
+        "propertyDigest": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 7401,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 35,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "after": {
+          "frames": 45,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "errors": [],
+        "resized": {
+          "frames": 53,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 800,
+          "height": 559,
+          "dpi": 1
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "scriptPropertyQueries": 2228228,
+        "scriptPropertyExtractions": 65536,
+        "propertyDigest": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 7401,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 40,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "after": {
+          "frames": 50,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "errors": [],
+        "resized": {
+          "frames": 57,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1600,
+          "height": 1118,
+          "dpi": 2
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      }
+    ]
+  },
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Text/IndicSyllableMachineData.Generated.cs": "0b34ad5e7b4b0739ae95858a88555126d8b89e3815ba6914a8209093f06a6644",
+    "src/ProGPU.Rust/src/text/script_actions.rs": "63a1b61685759b0e75312713a4a8cec839350a7235a3a4c4fbdae07226be6537",
+    "src/ProGPU.Rust/src/text/script_actions/indic.rs": "dec77821a422fb5fd6db0138daed7e83fef5f0fdb92067a10303822483f4abe5",
+    "src/ProGPU.Rust/src/text/script_actions/indic_syllables.rs": "13f5a3f68230a8fb9b93f9a33f2e97ef9f6ff25a4038d554ef3667f76a76791c",
+    "src/ProGPU.Rust/tests/managed_indic_syllables.cs": "a2167d05c504611e2e6774d0a8f1bb2cd9f25e26f4a674c8e66a6c6b55082bf3",
+    "src/ProGPU.Rust/tests/support/managed_indic_cases.rs": "86f09ad8eeb8ab4cd96d53e24282b785346cebde31317063e3ca1441a8520093",
+    "src/ProGPU.Rust/tests/managed_script_actions.cs": "70b04da72a273f6f3a6cccbf13f3f191f9971db126b317c73cb5457e55be956c",
+    "eng/progpu-test-rust-indic-syllables.py": "2e2d14c9e1390179551349bee7618d6fa9a52a53e6c3f87bdaf34606f7d94ac0"
+  },
+  "provenance_audit": "Approved original ProGPU-owned preparation/assignment/unsafe-flag methods ported; independent grammar authored from public specifications and original API outcomes. Original machine invoked only as black-box oracle, generated bytes hashed opaquely for identity. No generated tables/state/action topology or foreign implementation used. Earlier audited branch history through fef3a3d95 unchanged. Current additions/diff reviewed; no source shader/compiler/driver policy edits.",
+  "toolchain": "cargo/rustc 1.90.0",
+  "performance": "40 complete-output matched workloads, three rotating trials; new-stage baseline with 35/36 active Rust medians lower, one 1.0504x higher, four clock-limited no-ops. Matched final six-second Rust/C# CPU profiles retained. No historical optimization, allocator/process-memory/GPU/full-shaping qualification.",
+  "browser_reliability": "Local pass remains separate from unresolved earlier hosted DPR 2 device losses. The previous diagnostic checkpoint hosted source/browser/GPU/Windows/Linux lanes pass; macOS cancelled."
+}

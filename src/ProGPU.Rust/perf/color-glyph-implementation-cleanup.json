@@ -1,0 +1,17 @@
+{
+  "observed_utc": "2026-11-09T15:15:42.125181+00:00",
+  "previous_head": "c642b9fcc821fdcb43bf34f53d1fc050074f4b64",
+  "scope": "Owned external Rust target incremental directories, inactive for at least one hour; no live cargo/rustc observed before cleanup",
+  "removed_directories": 229,
+  "removed_logical_bytes": 1255113421,
+  "areas": {
+    "debug/incremental": 229,
+    "wasm32-unknown-unknown/debug/incremental": 0
+  },
+  "retained": [
+    "Current incremental state",
+    "Reusable Cargo dependencies",
+    "Original source and validation evidence"
+  ],
+  "new_runtime_benchmark_trace_package_artifacts": false
+}

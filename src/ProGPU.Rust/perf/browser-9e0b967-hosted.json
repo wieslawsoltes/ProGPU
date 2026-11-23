@@ -1,0 +1,111 @@
+{
+  "utc": "2026-11-09T13:07:55.588290+00:00",
+  "head": "9e0b96785f2e3777949c8346fb6b6a30e5b6843e",
+  "run_id": 42620434474,
+  "job_id": 129170850465,
+  "artifact_id": 13676447171,
+  "artifact_zip_sha256": "c94aefdd70369dadf108fce90ec8ca64e06c9b375bba122242cb66c10df8960a",
+  "original": {
+    "status": "failed",
+    "browser": "151.0.7922.34",
+    "platform": "linux",
+    "architecture": "x64",
+    "headless": false,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache",
+      "--enable-features=Vulkan",
+      "--use-vulkan=swiftshader",
+      "--disable-vulkan-surface"
+    ],
+    "error": "Error: page.evaluate: WebGPU device is lost",
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "scriptPropertyQueries": 2228228,
+        "managedScriptActionChecks": 7401,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "errors": [],
+        "captureCompleted": true
+      },
+      {
+        "dpr": 2,
+        "stage": "final capture completion",
+        "consoleErrors": [
+          "WebGPU device lost: Unknown: A valid external Instance reference no longer exists."
+        ],
+        "scriptPropertyQueries": 2228228,
+        "managedScriptActionChecks": 7401,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "errors": []
+      }
+    ]
+  },
+  "diagnostic": {
+    "status": "failed",
+    "browser": "151.0.7922.34",
+    "platform": "linux",
+    "architecture": "x64",
+    "headless": false,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache",
+      "--enable-features=Vulkan",
+      "--use-vulkan=swiftshader",
+      "--disable-vulkan-surface"
+    ],
+    "error": "Error: Timed out waiting for retained browser frame",
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "scriptPropertyQueries": 2228228,
+        "managedScriptActionChecks": 7401,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "errors": [],
+        "captureCompleted": true
+      },
+      {
+        "dpr": 2,
+        "stage": "resize",
+        "consoleErrors": [
+          "WebGPU device lost: Unknown: A valid external Instance reference no longer exists.",
+          "WebGPU device is lost"
+        ],
+        "scriptPropertyQueries": 2228228,
+        "managedScriptActionChecks": 7401,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "errors": []
+      }
+    ]
+  },
+  "observation": {
+    "status": "observed",
+    "sample_count": 3,
+    "backtrace": {
+      "status": "observation unavailable",
+      "reason": "gdb or timeout is not installed"
+    },
+    "compressed_file": "browser-9e0b967-gpu-process.json.gz",
+    "original_bytes": 37088,
+    "original_sha256": "61931360e8dde0a115648861c94ba7e7e1c40b59ffcc824c21e39a545a6d4dd7",
+    "compressed_bytes": 3769
+  },
+  "limits": "Original DPR-2 final capture loses the device after all source/CPU/offscreen checks. Diagnostic DPR-2 resize times out after GPU exit 512. Owned GPU samples are available; required GDB/timeout tooling is unavailable, no stack attribution. Diagnostic timing and CPU samples do not establish root cause or qualify original reliability. Failure-only tool installation is a subsequent workflow change; original flags and deadlines preserved.",
+  "complete_reports": {
+    "compressed_file": "browser-9e0b967-reports.json.gz",
+    "archive_bytes": 88436,
+    "archive_sha256": "e49e926da06dc5f0458650053e254062887ada1dd09825c1a363dbce21baf294",
+    "compressed_bytes": 6814,
+    "encoding": "JSON mapping of names to complete original UTF-8 JSON text"
+  }
+}

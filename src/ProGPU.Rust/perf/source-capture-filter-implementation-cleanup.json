@@ -1,0 +1,26 @@
+{
+  "observed_utc": "2026-11-10T06:39:37.479495+00:00",
+  "scope": "Full image-filter descriptors/kernels and actual source-frame capture implementation",
+  "validation": "Deferred until all implementation is complete; source formatting only",
+  "new_build_benchmark_trace_artifacts": false,
+  "incremental_inventory": [
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/debug/incremental",
+      "groups": 77,
+      "directories": 160
+    },
+    {
+      "path": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1/wasm32-unknown-unknown/debug/incremental",
+      "groups": 2,
+      "directories": 2
+    }
+  ],
+  "active_compiler_count": 5,
+  "retained_obsolete_due_to_active_compiler": 83,
+  "removed": [],
+  "removed_logical_bytes": 0,
+  "free_gib": {
+    "internal": 29.06,
+    "external": 175.51
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "captured_utc": "2026-11-09T04:07:51.595641+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "exact_source_resource_document_files": 325,
+  "original_manifest": "exact",
+  "temporary_bytes_removed": 578229443,
+  "final_archive_files": 332,
+  "final_exact_source_resource_document_files": 328,
+  "fresh_build_unchanged_code_resource_files": 254,
+  "final_bytes_match_worktree": true,
+  "post_build_changes": "Documentation scope clarification and compact validation/cleanup receipts only; compiled sources and resources unchanged."
+}

@@ -1,0 +1,15 @@
+{
+  "utc": "2026-11-09T10:36:41.372984+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "archive_files_at_fresh_build": 479,
+  "exact_original_files_at_fresh_build": 477,
+  "fresh_build_archive_sha256": "a95b13d5eb1ff56d928a0d2eb1ad4df95cf299f05cb6bc79b1a0350a2a686d3d",
+  "scope": "All archived source/resource/document bytes matched the workspace before fresh isolated checks. Only compact package/cleanup receipts finalized afterward.",
+  "final_archive_files": 481,
+  "final_exact_original_files": 479,
+  "unchanged_source_resource_document_files": 335,
+  "final_archive_sha256": "e96a5f792de575e90ca4bba344dc88b40f3737f82280c858674f19aa05d5a7ab",
+  "post_verification_changes": "Only compact package and cleanup receipts finalized; compiled sources/resources/documents are byte-identical to the fresh independent package checks."
+}

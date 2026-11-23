@@ -1,0 +1,30 @@
+{
+  "captured_utc": "2026-11-09T01:38:36.367500+00:00",
+  "temporary_package_bytes_removed": 538108070,
+  "temporary_benchmark_bytes_removed": 148984,
+  "unused_binaries_and_helper": [
+    {
+      "path": "target/release/examples/gsub_benchmark-e6f72405bd5ba56d",
+      "logical_bytes": 551712
+    },
+    {
+      "path": "target/release/examples/gsub_benchmark-e6f72405bd5ba56d.d",
+      "logical_bytes": 855
+    },
+    {
+      "path": "target/release/examples/gsub_benchmark",
+      "logical_bytes": 551712
+    },
+    {
+      "path": "target/release/examples/gsub_benchmark.d",
+      "logical_bytes": 5452
+    },
+    {
+      "path": "/tmp/progpu-rust-gsub-package-check.py",
+      "logical_bytes": 1539
+    }
+  ],
+  "source_oracle_scratch": "Automatically removed by RAII; additional to measured bytes",
+  "retained": "Active build/dependency caches, current browser/package evidence, compact source/input/binary receipts",
+  "total_measured_logical_bytes_removed": 539368324
+}

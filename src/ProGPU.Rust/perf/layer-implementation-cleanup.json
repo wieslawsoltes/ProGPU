@@ -1,0 +1,35 @@
+{
+  "observed_utc": "2026-11-09T19:16:12.275919+00:00",
+  "previous_head": "b41b78eb45dd5ec0903e1688aabc81271ebb3775",
+  "scope": "Owned obsolete duplicate external incremental directories; retain newest per crate and every inventory modified within one hour; skip deletion while compilers are active",
+  "removed_incremental_directories": 0,
+  "removed_logical_bytes": 0,
+  "areas": {
+    "debug/incremental": {
+      "removed_directories": 0,
+      "removed_logical_bytes": 0
+    }
+  },
+  "cleanup_status": "skipped_or_stopped_for_active_compilers",
+  "retained": [
+    "Newest incremental inventory per crate and all recently modified state",
+    "Reusable external Cargo dependencies",
+    "Original source and compact validation evidence"
+  ],
+  "free_gib": {
+    "internal": 35.1,
+    "external": 217.68
+  },
+  "new_runtime_benchmark_trace_package_artifacts": false,
+  "runtime_differential_browser_performance_qualification": "deferred until connected stack assembly",
+  "static_checks": {
+    "native_all_targets_all_features_clippy": "passed",
+    "wasm_browser_clippy": "passed",
+    "cpu_only_strict_clippy": "passed",
+    "format": "passed",
+    "diff_whitespace": "passed",
+    "javascript_syntax": "passed",
+    "canonical_shaders": "unchanged; no new runtime or offline shader qualification claimed"
+  },
+  "transient_build_observation": "One repeat native Clippy invocation reported target directory Not a directory; symlink and external target were confirmed intact, and an unchanged command retry passed. No compiler flags, source or target paths changed to bypass it."
+}

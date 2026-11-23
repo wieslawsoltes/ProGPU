@@ -14,6 +14,18 @@ Native hosts can explicitly select a WebGPU backend before instance creation wit
 [native backend selection](docs/native-backend-selection.md) for the typed API,
 `WGPU_BACKEND` alias, shared-device rules and qualification limits.
 
+## Rust port
+
+The native Rust port uses wgpu and the same production WGSL as C# and C++.
+Its current increment includes retained analytic vector rendering, a winit
+window sample, native geometry differential tests, GPU pixel/lifetime tests,
+and a Release benchmark. Full-stack parity is in progress; see the explicit
+[port ledger and run instructions](src/ProGPU.Rust/README.md).
+
+```sh
+cargo run --locked --features window --example winit
+```
+
 ## NuGet Packages
 
 ProGPU runtime packages are built from `eng/progpu-package-list.sh` by the

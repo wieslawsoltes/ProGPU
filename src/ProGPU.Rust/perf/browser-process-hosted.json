@@ -1,0 +1,37 @@
+{
+  "commit": "0300130e1be31e6ad5166f8d4c1d44cda776ef56",
+  "run": 42569903407,
+  "jobs": [
+    {
+      "id": 129004629787,
+      "name": "browser",
+      "conclusion": "success"
+    },
+    {
+      "id": 129004630086,
+      "name": "portable (ubuntu-24.04)",
+      "conclusion": "success"
+    },
+    {
+      "id": 129004630102,
+      "name": "portable (windows-latest)",
+      "conclusion": "success"
+    },
+    {
+      "id": 129004630159,
+      "name": "gpu",
+      "conclusion": "success"
+    },
+    {
+      "id": 129004630331,
+      "name": "portable (macos-14)",
+      "conclusion": "cancelled"
+    }
+  ],
+  "source_evidence": [
+    "2026-11-09T06:09:22.6119702Z Original managed positioning: 32008 cases, 760086 delta queries, 32008 actual normalized captures, 44353296 exact output bytes",
+    "2026-11-09T06:11:03.2120320Z Original managed mapping: 8436 cases / 5143568 queries / 61756560 exact bytes; 88 browser cases / 455992 bytes",
+    "2026-11-09T06:12:49.2915937Z     Packaged 380 files, 7.3MiB (1.0MiB compressed)"
+  ],
+  "scope": "Previous diagnostics-only checkpoint. Original browser passed and failure diagnostics skipped; no actual Linux GDB observation. Intermittent browser failures remain unresolved. Production Rust unchanged at this checkpoint; these results do not qualify the later managed grapheme extension."
+}
