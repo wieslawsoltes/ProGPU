@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 
 namespace progpu::native::execution {
 
@@ -2691,18 +2692,17 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic analytic packed GPU page could not be allocated.");
         }
-        wgpuQueueWriteBuffer(
-            engine->queue,
-            semantic_analytic_page.vertex_buffer,
-            0U,
-            engine->vertices.data(),
-            static_cast<std::size_t>(compiled_vertex_bytes));
-        wgpuQueueWriteBuffer(
-            engine->queue,
-            semantic_analytic_page.index_buffer,
-            0U,
-            engine->indices.data(),
-            static_cast<std::size_t>(compiled_index_bytes));
+        const auto write_to = [engine](WGPUBuffer buffer) noexcept {
+            return [engine, buffer](std::size_t offset, const std::byte* data, std::size_t size) noexcept {
+                wgpuQueueWriteBuffer(engine->queue, buffer, offset, data, size);
+            };
+        };
+        semantic_analytic_vertex_upload_bytes = semantic_analytic_page.vertex_mirror.upload(
+            std::as_bytes(std::span(engine->vertices)),
+            write_to(semantic_analytic_page.vertex_buffer));
+        semantic_analytic_index_upload_bytes = semantic_analytic_page.index_mirror.upload(
+            std::as_bytes(std::span(engine->indices)),
+            write_to(semantic_analytic_page.index_buffer));
         semantic_analytic_page.draws = std::move(compiled_draws);
         semantic_analytic_page.vertex_bytes = compiled_vertex_bytes;
         semantic_analytic_page.index_bytes = compiled_index_bytes;
@@ -2712,8 +2712,6 @@ progpu_native_status render_scene(
         semantic_analytic_page.target_width = frame->width;
         semantic_analytic_page.target_height = frame->height;
         semantic_analytic_page.cache_valid = true;
-        semantic_analytic_vertex_upload_bytes = compiled_vertex_bytes;
-        semantic_analytic_index_upload_bytes = compiled_index_bytes;
     }
 
     auto& semantic_path_page = engine->semantic_path_cache;
