@@ -1052,7 +1052,11 @@ typedef enum progpu_native_engine_flag {
      * rejects the query before publishing any result. Zero keeps single-pass
      * queries until full platform/application qualification. No CPU fallback. */
     /* PROGPU_CSHARP_ULONG: EngineOrderedHitQueries */
-    PROGPU_NATIVE_ENGINE_ORDERED_HIT_QUERIES = 32ULL
+    PROGPU_NATIVE_ENGINE_ORDERED_HIT_QUERIES = 32ULL,
+    /* Renders groups that read nothing of their surroundings before the root pass, one page
+     * of the size of the frame for each nesting depth, so that their number does not add
+     * render passes. The pixels are those without the flag. */
+    PROGPU_NATIVE_ENGINE_GROUPS_BEFORE_ROOT_PASS = 64ULL
 } progpu_native_engine_flag;
 
 /*

@@ -11,6 +11,7 @@
 #include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_semantic_group_pages.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_text_style.hpp"
@@ -535,6 +536,10 @@ struct progpu_native_engine {
     std::uint64_t semantic_parked_scene_bytes = 0U;
     std::uint64_t semantic_scene_budget = 0U;
     std::uint64_t semantic_scene_clock = 0U;
+    // The pages of the groups of this frame, and the plan hash mixed into the content
+    // hashes above, as the compiled family pages depend on where their groups are.
+    progpu::native::semantic::group_page_plan semantic_group_plan;
+    std::uint64_t semantic_group_plan_applied = 0U;
     std::vector<std::byte> semantic_scene_snapshot;
     std::uint64_t semantic_scene_id = 0U;
     std::uint64_t semantic_scene_generation = 0U;

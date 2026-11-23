@@ -106,6 +106,19 @@ progpu_native_status bind_scene_external_images(
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
+void apply_group_plan_hash(progpu_native_engine* engine, std::uint64_t plan_hash) noexcept {
+    const std::uint64_t change = engine->semantic_group_plan_applied ^ plan_hash;
+    if (change == 0U) {
+        return;
+    }
+    auto& hashes = engine->semantic_hashes;
+    for (auto* hash : {&hashes.brush, &hashes.text_style, &hashes.analytic, &hashes.path, &hashes.glyph,
+             &hashes.image, &hashes.three_d, &hashes.hit_test, &engine->semantic_scene_hash}) {
+        *hash ^= change;
+    }
+    engine->semantic_group_plan_applied = plan_hash;
+}
+
 namespace {
 
 semantic_retained_scene* parked_scene(progpu_native_engine* engine, std::uint64_t id) noexcept {
@@ -147,6 +160,8 @@ void park_active_scene(progpu_native_engine* engine) {
     semantic_retained_scene scene{};
     scene.id = engine->semantic_scene_id;
     scene.generation = engine->semantic_scene_generation;
+    // What is kept is the content of the scene, without the groups plan of its last frame.
+    apply_group_plan_hash(engine, 0U);
     scene.hash = engine->semantic_scene_hash;
     scene.resource_scope = engine->semantic_resource_scope;
     scene.last_use = ++engine->semantic_scene_clock;
@@ -188,6 +203,7 @@ bool activate_parked_scene(progpu_native_engine* engine, std::uint64_t id) noexc
         engine->semantic_scene_generation = next.generation;
         engine->semantic_scene_hash = next.hash;
         engine->semantic_hashes = hashes;
+        engine->semantic_group_plan_applied = 0U;
         engine->semantic_scene_header = next.header;
         engine->semantic_scene_metrics = next.metrics;
         return true;
@@ -348,6 +364,7 @@ progpu_native_status commit_scene(
         engine->semantic_scene_generation = validation.header.generation;
         engine->semantic_scene_hash = next_hash;
         engine->semantic_hashes = next_content_hashes;
+        engine->semantic_group_plan_applied = 0U;
         engine->semantic_scene_header = validation.header;
         engine->semantic_scene_metrics = {};
         engine->semantic_scene_metrics.struct_size =

@@ -89,8 +89,11 @@ inline constexpr std::uint32_t max_cached_layers =
     PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS;
 inline constexpr std::uint32_t cached_layer_slot_base =
     PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS;
-inline constexpr std::uint32_t layer_slot_count =
+// The pages of the groups rendered before the root pass, one per nesting depth.
+inline constexpr std::uint32_t group_page_slot_base =
     PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS + max_cached_layers;
+inline constexpr std::uint32_t layer_slot_count =
+    group_page_slot_base + PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS;
 inline constexpr std::uint32_t effect_uniform_alignment = 256U;
 inline constexpr std::uint64_t max_vertex_bytes =
     256ULL * 1024ULL * 1024ULL;
