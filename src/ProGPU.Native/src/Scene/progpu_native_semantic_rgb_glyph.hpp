@@ -37,9 +37,11 @@ inline bool try_resolve_rgb_glyph_translation(const progpu_native_scene_rgb_glyp
 
 inline bool valid_rgb_glyph_descriptor(const progpu_native_scene_rgb_glyph_draw& draw) noexcept {
     return draw.struct_size == sizeof(draw) && draw.glyph_count != 0U && draw.glyph_count <= 65536U &&
-        draw.filter_model == PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8 && draw.pixel_geometry <= 2U &&
+        (draw.filter_model == PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8 ||
+            draw.filter_model == PROGPU_NATIVE_RGB_GLYPH_FIR5_8X8) && draw.pixel_geometry <= 2U &&
+        (draw.coverage_transfer == 0U || (draw.coverage_transfer >= 14U && draw.coverage_transfer <= 78U)) &&
         draw.gamma == 1.0F && draw.enhanced_contrast == 0.0F && draw.cleartype_level == 1.0F &&
-        std::isfinite(draw.dpi_scale) && draw.dpi_scale > 0.0F && draw.reserved0 == 0U && draw.reserved1 == 0U;
+        std::isfinite(draw.dpi_scale) && draw.dpi_scale > 0.0F && draw.reserved1 == 0U;
 }
 
 inline bool valid_rgb_glyph_tile(const progpu_native_scene_rgb_glyph_tile& tile,
@@ -52,9 +54,10 @@ inline bool valid_rgb_glyph_tile(const progpu_native_scene_rgb_glyph_tile& tile,
     for (const float value : {tile.foreground.r, tile.foreground.g, tile.foreground.b, tile.foreground.a})
         if (!std::isfinite(value) || value < 0.0F || value > 1.0F) return false;
     // Validate the actual original shader arithmetic, not only finite operands.
+    // The widest filter reads two subpixels to either side.
     const std::array sample_extents{
-        ((tile.x_start - 1.0F / 3.0F) + 0.0625F - tile.subpixel_x) / tile.scale,
-        ((tile.x_start + static_cast<float>(tile.width - 1U) + 1.0F / 3.0F) +
+        ((tile.x_start - 2.0F / 3.0F) + 0.0625F - tile.subpixel_x) / tile.scale,
+        ((tile.x_start + static_cast<float>(tile.width - 1U) + 2.0F / 3.0F) +
             0.9375F - tile.subpixel_x) / tile.scale,
         -(tile.y_start + 0.0625F) / tile.scale,
         -(tile.y_start + static_cast<float>(tile.height - 1U) + 0.9375F) / tile.scale};

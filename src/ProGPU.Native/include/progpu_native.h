@@ -1749,7 +1749,12 @@ typedef struct progpu_native_scene_glyph_draw {
 /* Independent outline integration model. This enum is not interchangeable with
  * DWRITE_RENDERING_MODE or the ordinary semantic text rendering mode. */
 typedef enum progpu_native_rgb_glyph_filter {
-    PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8 = 1
+    PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8 = 1,
+    /* The full-pixel box of a channel, 208/256, with those of the subpixels on
+     * either side, 24/256 each: over subpixels the five taps of the default LCD
+     * filter (8, 77, 86, 77, 8)/256 to within one part in 256. Colour fringes are
+     * lower than with the box alone. */
+    PROGPU_NATIVE_RGB_GLYPH_FIR5_8X8 = 2
 } progpu_native_rgb_glyph_filter;
 
 /* DRAW_RGB_GLYPH_RUN prefix followed by glyph_count scene_rgb_glyph_tile records.
@@ -1757,6 +1762,8 @@ typedef enum progpu_native_rgb_glyph_filter {
  * Fixed physical tiles retain their original DPI generation. The renderer must
  * prove the actual target is opaque; this descriptor cannot assert that fact.
  * Initial explicit policy: gamma=1, contrast=0, level=1, flat/RGB/BGR geometry.
+ * coverage_transfer is 0, or 14..78: the exponent of a text style's transfer
+ * (progpu_native_scene_text_style), applied to each channel's coverage.
  * Reserved values and unknown models reject, never select a scalar fallback. */
 typedef struct progpu_native_scene_rgb_glyph_draw {
     uint32_t struct_size;
@@ -1767,7 +1774,7 @@ typedef struct progpu_native_scene_rgb_glyph_draw {
     float enhanced_contrast;
     float cleartype_level;
     float dpi_scale;
-    uint32_t reserved0;
+    uint32_t coverage_transfer;
     uint32_t reserved1;
 } progpu_native_scene_rgb_glyph_draw;
 

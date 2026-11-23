@@ -12,7 +12,9 @@ struct RgbGlyphInstance {
 // text. RGB placement has no bounded-pass origin shift, so renderOrigin is zero.
 struct RgbGlyphFrame {
     extent: vec2<f32>, renderOrigin: vec2<f32>,
-    backdropOrigin: vec2<u32>, reserved: vec2<u32>,
+    backdropOrigin: vec2<u32>,
+    // x: 0, or the 14..78 encoding of source_grayscale_coverage; y: reserved.
+    coverageTransfer: vec2<u32>,
 };
 struct RgbGlyphCell {
     origin: vec2<u32>, extent: vec2<u32>,
@@ -57,7 +59,13 @@ fn rgb_channel_output(input: RgbGlyphVertex, channel: u32, primaryMask: f32, cha
         let local = targetPixel - glyph.targetOrigin;
         if (all(local >= vec2<f32>(0.0)) && all(local < glyph.extent)) {
             let pixel = vec2<i32>(local) + vec2<i32>(glyph.atlasOrigin);
-            let coverage = textureLoad(rgbCoverage, pixel, 0)[channel];
+            var coverage = textureLoad(rgbCoverage, pixel, 0)[channel];
+            if (uniforms.coverageTransfer.x != 0u) {
+                // The transfer of grey text, on each channel's own coverage.
+                let exponent = 0.5 + (f32(uniforms.coverageTransfer.x) - 14.0) / 32.0;
+                let background = pow(clamp(1.0 - coverage, 0.0, 1.0), exponent);
+                coverage = (255.0 - floor(background * 255.0 + 0.5)) / 255.0;
+            }
             let amount = ((coverage * glyph.foreground.a) * primaryMask) * chainMask;
             let value = glyph.foreground[channel] * 255.0 * amount + destination * (1.0 - amount);
             destination = floor(value + 0.5);
