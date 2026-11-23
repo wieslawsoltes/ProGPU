@@ -222,6 +222,9 @@ struct progpu_native_engine {
     std::uint64_t index_buffer_size = 0;
     WGPUBuffer path_vertex_buffer = nullptr;
     WGPUBuffer path_index_buffer = nullptr;
+    // What the two buffers hold, so that a new payload writes what changed.
+    progpu::native::range_upload_mirror path_vertex_mirror;
+    progpu::native::range_upload_mirror path_index_mirror;
     std::uint64_t path_vertex_buffer_size = 0U;
     std::uint64_t path_index_buffer_size = 0U;
     std::vector<progpu::native::vector_vertex> vertices;
@@ -2418,6 +2421,7 @@ struct progpu_native_engine {
             wgpuBufferRelease(path_vertex_buffer);
         }
         path_vertex_buffer = replacement;
+        path_vertex_mirror.invalidate();
         path_vertex_buffer_size = new_size;
         path_gpu_cache_valid = false;
         return true;
@@ -2451,6 +2455,7 @@ struct progpu_native_engine {
             wgpuBufferRelease(path_index_buffer);
         }
         path_index_buffer = replacement;
+        path_index_mirror.invalidate();
         path_index_buffer_size = new_size;
         path_gpu_cache_valid = false;
         return true;
