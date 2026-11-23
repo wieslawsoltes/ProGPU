@@ -237,6 +237,18 @@ unsafe extern "C" {
     ) -> ::core::ffi::c_int;
 }
 unsafe extern "C" {
+    pub fn progpu_native_scene_builder_last_path_resource(
+        builder: *const progpu_native_scene_builder,
+        resource_index: *mut u32,
+    ) -> ::core::ffi::c_int;
+    pub fn progpu_native_scene_builder_draw_path_resource(
+        builder: *mut progpu_native_scene_builder,
+        resource_index: u32,
+        brush_indices: *const u32,
+        brush_index_count: usize,
+        bounds: progpu_native_image_rect,
+        state_resource_index: u32,
+    ) -> ::core::ffi::c_int;
     pub fn progpu_native_scene_builder_draw_paths(
         builder: *mut progpu_native_scene_builder,
         paths: *const progpu_native_scene_path_fill,

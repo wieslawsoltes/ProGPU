@@ -90,6 +90,14 @@ int progpu_native_scene_builder_draw_paths(progpu_native_scene_builder* builder,
     const progpu_native_scene_path_fill* paths, size_t path_count, const progpu_native_path_segment* segments,
     size_t segment_count, const uint32_t* brush_indices, size_t brush_index_count, progpu_native_image_rect bounds,
     uint32_t state_resource_index);
+/* The index of the resource the last successful draw_paths added. */
+int progpu_native_scene_builder_last_path_resource(const progpu_native_scene_builder* builder,
+    uint32_t* resource_index);
+/* Draws the paths of a resource of this generation again, under another state and other brushes,
+   without copying its segments into the stream. */
+int progpu_native_scene_builder_draw_path_resource(progpu_native_scene_builder* builder, uint32_t resource_index,
+    const uint32_t* brush_indices, size_t brush_index_count, progpu_native_image_rect bounds,
+    uint32_t state_resource_index);
 int progpu_native_scene_builder_draw_image(progpu_native_scene_builder* builder, uint32_t image_resource_index,
     const progpu_native_scene_image_draw* image, progpu_native_image_rect bounds, uint32_t state_resource_index,
     const progpu_native_scene_image_sampling_options* sampling_options);

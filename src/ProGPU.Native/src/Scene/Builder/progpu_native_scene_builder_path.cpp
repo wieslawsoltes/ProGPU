@@ -33,6 +33,76 @@ bool semantic_scene_builder::draw_source_paths(
     return draw_paths_core(paths,segments,brush_indices,bounds,state_resource_index,{},&frame);
 }
 
+bool semantic_scene_builder::last_path_resource(
+    std::uint32_t& resource_index) const noexcept {
+    if (implementation_->resources.empty() ||
+        implementation_->resources.back().record.kind !=
+            PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+        return false;
+    }
+    resource_index = static_cast<std::uint32_t>(
+        implementation_->resources.size() - 1U);
+    return true;
+}
+
+bool semantic_scene_builder::draw_path_resource(
+    std::uint32_t resource_index,
+    std::span<const std::uint32_t> brush_indices,
+    progpu_native_image_rect bounds,
+    std::uint32_t state_resource_index) noexcept {
+    if (resource_index >= implementation_->resources.size() ||
+        implementation_->resources[resource_index].record.kind !=
+            PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH ||
+        !implementation_->valid_state_index(state_resource_index, true) ||
+        implementation_->commands.size() >=
+            PROGPU_NATIVE_SCENE_MAX_COMMANDS) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    const std::size_t path_count =
+        implementation_->resources[resource_index].payload.size() /
+        sizeof(progpu_native_scene_path_fill);
+    if (!brush_indices.empty() && brush_indices.size() != path_count) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    for (const std::uint32_t brush_index : brush_indices) {
+        if (brush_index >= implementation_->brushes.size()) {
+            return implementation_->fail(scene_build_error::invalid_argument);
+        }
+    }
+    try {
+        scene_builder_detail::reserve_append(implementation_->commands, 1U);
+        implementation::command_entry command{};
+        command.record.struct_size = sizeof(command.record);
+        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH;
+        command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.record.command_id = implementation_->commands.size() + 1U;
+        command.record.state_index = state_resource_index;
+        command.record.resource_index = resource_index;
+        command.record.bounds_x = bounds.x;
+        command.record.bounds_y = bounds.y;
+        command.record.bounds_width = bounds.width;
+        command.record.bounds_height = bounds.height;
+        if (!brush_indices.empty()) {
+            const progpu_native_scene_draw_brushes draw{
+                sizeof(progpu_native_scene_draw_brushes),
+                implementation_->brush_resource_index,
+                static_cast<std::uint32_t>(brush_indices.size()),
+                0U};
+            command.payload.resize(sizeof(draw) + brush_indices.size_bytes());
+            std::memcpy(command.payload.data(), &draw, sizeof(draw));
+            std::memcpy(
+                command.payload.data() + sizeof(draw),
+                brush_indices.data(),
+                brush_indices.size_bytes());
+        }
+        implementation_->commands.push_back(std::move(command));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    }
+}
+
 bool semantic_scene_builder::draw_paths_core(
     std::span<const progpu_native_scene_path_fill> paths,
     std::span<const progpu_native_path_segment> segments,
