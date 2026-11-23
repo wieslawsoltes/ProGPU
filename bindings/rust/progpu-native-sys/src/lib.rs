@@ -26,6 +26,11 @@ pub mod scene_builder {
     include!("scene_builder.rs");
 }
 
+/// Effects on the pixels of a layer, as passes of the device (`progpu_native_layer_effects.h`).
+pub mod layer_effects {
+    include!("layer_effects.rs");
+}
+
 /// The C ABI over the engine's font stack (`native/progpu_native_font_c.h`): the system font
 /// catalog, faces from bytes, tables, metrics and unhinted glyph outlines, linked statically.
 pub mod font {
