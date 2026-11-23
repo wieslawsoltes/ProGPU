@@ -1609,6 +1609,8 @@ struct progpu_native_engine {
             wgpuBufferRelease(page.vertex_buffer);
             page.vertex_buffer = nullptr;
         }
+        page.vertex_buffer_capacity = 0U;
+        page.vertex_mirror.invalidate();
         page.vertex_bytes = 0U;
         page.scene_hash = 0U;
         page.dpi_scale = 0.0F;
