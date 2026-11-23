@@ -43,7 +43,8 @@ constexpr bool valid_engine_flags(std::uint64_t flags) noexcept {
     constexpr std::uint64_t supported_flags = glyph_flags |
         PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
         PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING |
-        PROGPU_NATIVE_ENGINE_ORDERED_HIT_QUERIES;
+        PROGPU_NATIVE_ENGINE_ORDERED_HIT_QUERIES |
+        PROGPU_NATIVE_ENGINE_GROUPS_BEFORE_ROOT_PASS;
     return (flags & ~supported_flags) == 0U &&
         std::popcount(flags & glyph_flags) <= 1 &&
         std::popcount(flags & (PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
@@ -432,7 +433,8 @@ progpu_native_status progpu_native_browser_engine_create(
         (options->flags & ~static_cast<std::uint64_t>(
             PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
             PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING |
-            PROGPU_NATIVE_ENGINE_ORDERED_HIT_QUERIES)) != 0U ||
+            PROGPU_NATIVE_ENGINE_ORDERED_HIT_QUERIES |
+            PROGPU_NATIVE_ENGINE_GROUPS_BEFORE_ROOT_PASS)) != 0U ||
         !valid_engine_flags(options->flags) ||
         options->device == 0U ||
         options->queue == 0U ||
@@ -508,6 +510,24 @@ progpu_native_status progpu_native_engine_update_scene_delta(
     const progpu_native_scene_delta* delta,
     progpu_native_scene_metrics* metrics) {
     return progpu::native::execution::update_scene_delta(engine, delta, metrics);
+}
+
+progpu_native_status progpu_native_engine_set_scene_budget(
+    progpu_native_engine* engine,
+    uint64_t bytes) {
+    return progpu::native::execution::set_scene_budget(engine, bytes);
+}
+
+progpu_native_status progpu_native_engine_release_scene(
+    progpu_native_engine* engine,
+    uint64_t scene_id) {
+    return progpu::native::execution::release_scene(engine, scene_id);
+}
+
+progpu_native_status progpu_native_engine_get_scene_store_metrics(
+    const progpu_native_engine* engine,
+    progpu_native_scene_store_metrics* metrics) {
+    return progpu::native::execution::get_scene_store(engine, metrics);
 }
 
 progpu_native_status progpu_native_engine_take_upload_counters(

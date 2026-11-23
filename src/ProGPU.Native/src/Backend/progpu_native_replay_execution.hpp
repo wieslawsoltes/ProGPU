@@ -46,7 +46,8 @@ bool prepare_semantic_layer_resources(
     std::uint32_t frame_height,
     float dpi_scale,
     std::uint32_t composite_count,
-    std::uint64_t& uploaded_uniform_bytes);
+    std::uint64_t& uploaded_uniform_bytes,
+    std::uint32_t group_page_count = 0U);
 
 bool prepare_semantic_depth_resources(
     progpu_native_engine& engine,

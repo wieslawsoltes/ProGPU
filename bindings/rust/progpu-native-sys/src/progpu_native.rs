@@ -1559,6 +1559,7 @@ pub const PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK: progpu_native_engine_f
 pub const PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING: progpu_native_engine_flag = 8;
 pub const PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING: progpu_native_engine_flag = 16;
 pub const PROGPU_NATIVE_ENGINE_ORDERED_HIT_QUERIES: progpu_native_engine_flag = 32;
+pub const PROGPU_NATIVE_ENGINE_GROUPS_BEFORE_ROOT_PASS: progpu_native_engine_flag = 64;
 pub type progpu_native_engine_flag = ::core::ffi::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -6709,6 +6710,18 @@ unsafe extern "C" {
         delta: *const progpu_native_scene_delta,
         metrics: *mut progpu_native_scene_metrics,
     ) -> progpu_native_status;
+    pub fn progpu_native_engine_set_scene_budget(
+        engine: *mut progpu_native_engine,
+        bytes: u64,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_release_scene(
+        engine: *mut progpu_native_engine,
+        scene_id: u64,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_get_scene_store_metrics(
+        engine: *const progpu_native_engine,
+        metrics: *mut progpu_native_scene_store_metrics,
+    ) -> progpu_native_status;
     pub fn progpu_native_engine_take_upload_counters(
         engine: *mut progpu_native_engine,
         counters: *mut progpu_native_upload_counters,
@@ -6994,6 +7007,14 @@ unsafe extern "C" {
 pub struct progpu_native_scene_delta_range {
     pub offset: u64,
     pub size: u64,
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct progpu_native_scene_store_metrics {
+    pub struct_size: u32,
+    pub kept_scene_count: u32,
+    pub kept_scene_bytes: u64,
+    pub budget_bytes: u64,
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]

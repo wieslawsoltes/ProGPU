@@ -1,5 +1,6 @@
 #pragma once
 
+#include "progpu_native_semantic_group_pages.hpp"
 #include "progpu_native.h"
 #include "progpu_native_semantic_budget.hpp"
 
@@ -357,8 +358,20 @@ public:
     // or a claim made by a draw payload. Root opacity is not inferred.
     bool current_ignores_alpha() const noexcept;
 
+    // With a plan, a group on a page is a target of the size of the frame: its content
+    // is placed at its place on the frame, and true_current() is its rectangle there.
+    void use_group_pages(const group_page_plan* plan) noexcept {
+        plan_ = plan;
+    }
+
+    scissor true_current() const noexcept;
+
 private:
     const std::byte* bytes_;
+    const group_page_plan* plan_ = nullptr;
+    std::uint32_t layer_ordinal_ = 0U;
+    std::array<bool,
+        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> on_page_{};
     scissor frame_extent_{};
     std::uint32_t frame_width_ = 0U;
     std::uint32_t frame_height_ = 0U;

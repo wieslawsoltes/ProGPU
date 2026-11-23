@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "progpu_native.h"
 
 #include <cstddef>
@@ -13,6 +15,21 @@ progpu_native_status update_scene(
     const void* stream,
     std::size_t stream_size,
     progpu_native_scene_metrics* metrics);
+
+// Mixes the hash of the groups plan of a frame into the content hashes of the active
+// scene, in place of the one mixed in before.
+void apply_group_plan_hash(progpu_native_engine* engine, std::uint64_t plan_hash) noexcept;
+
+// Makes the scene kept for a target the active one, if it is kept.
+void select_retained_scene(progpu_native_engine* engine, std::uint64_t scene_id) noexcept;
+
+progpu_native_status set_scene_budget(progpu_native_engine* engine, std::uint64_t bytes);
+
+progpu_native_status release_scene(progpu_native_engine* engine, std::uint64_t scene_id);
+
+progpu_native_status get_scene_store(
+    const progpu_native_engine* engine,
+    progpu_native_scene_store_metrics* metrics);
 
 progpu_native_status update_scene_delta(
     progpu_native_engine* engine,

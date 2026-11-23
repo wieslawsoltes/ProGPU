@@ -143,6 +143,7 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The semantic scene frame damage descriptor is invalid.");
     }
+    select_retained_scene(engine, frame->scene_id);
     if (frame->scene_id != engine->semantic_scene_id ||
         frame->generation != engine->semantic_scene_generation ||
         engine->semantic_scene_snapshot.empty()) {
@@ -398,6 +399,23 @@ progpu_native_status render_scene(
             primitive.color = brush.colors[0];
         }
     };
+
+    // Groups that read nothing of their surroundings are drawn before the root pass.
+    auto& group_plan = engine->semantic_group_plan;
+    group_plan.reset();
+    if ((engine->engine_flags & PROGPU_NATIVE_ENGINE_GROUPS_BEFORE_ROOT_PASS) != 0U &&
+        (engine->engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING) == 0U &&
+        !mapped_presentation) {
+        try {
+            semantic::build_group_page_plan(bytes, header, frame->width, frame->height, presentation, group_plan);
+        } catch (const std::bad_alloc&) {
+            group_plan.reset();
+        }
+    }
+    apply_group_plan_hash(engine, group_plan.hash);
+    const std::uint64_t group_page_bytes = static_cast<std::uint64_t>(group_plan.page_count) *
+        frame->width * frame->height * 4U;
+    std::uint32_t budget_layer_ordinal = 0U;
 
     semantic_layer_budget layer_budget{};
     semantic::cache_budget cache_budget{};
@@ -763,9 +781,11 @@ progpu_native_status render_scene(
                     semantic_advanced_source_height,
                     target_extent.height);
             }
+            const bool on_group_page = materialized && group_plan.page_of(budget_layer_ordinal) != 0U;
+            budget_layer_ordinal += materialized ? 1U : 0U;
             if (!layer_budget.push(
                     final_sample_layer ? semantic_scissor{0U, 0U, 1U, 1U, true} : target_extent,
-                    materialized && !cached,
+                    materialized && !cached && !on_group_page,
                     effected && !cached && !final_sample_layer)) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -875,6 +895,7 @@ progpu_native_status render_scene(
         frame->width,
         frame->height,
         presentation);
+    preflight_target_cursor.use_group_pages(&group_plan);
     std::vector<std::uint8_t> semantic_generated_masks_budgeted;
     std::vector<std::uint8_t> semantic_glyph_resources_budgeted;
     engine->semantic_glyph_keys.reset();
@@ -2039,7 +2060,7 @@ progpu_native_status render_scene(
     const std::uint64_t semantic_all_effect_uniform_bytes = semantic_effect_uniform_bytes +
         static_cast<std::uint64_t>(semantic_shader_effect_count) * 528U +
         static_cast<std::uint64_t>(semantic_shader_sample_count) * 64U + semantic_shader_sampler_bytes;
-    const std::uint64_t pooled_layer_bytes = layer_budget.pooled_bytes();
+    const std::uint64_t pooled_layer_bytes = layer_budget.pooled_bytes() + group_page_bytes;
     const std::uint64_t pooled_effect_bytes =
         layer_budget.pooled_effect_bytes();
     const std::uint64_t pooled_cache_bytes = cache_budget.pooled_bytes();
@@ -2356,6 +2377,7 @@ progpu_native_status render_scene(
                 frame->width,
                 frame->height,
                 presentation);
+            target_cursor.use_group_pages(&group_plan);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -2760,6 +2782,7 @@ progpu_native_status render_scene(
                 frame->width,
                 frame->height,
                 presentation);
+            target_cursor.use_group_pages(&group_plan);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -3081,6 +3104,7 @@ progpu_native_status render_scene(
                 frame->width,
                 frame->height,
                 presentation);
+            target_cursor.use_group_pages(&group_plan);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -3483,6 +3507,7 @@ progpu_native_status render_scene(
                 frame->width,
                 frame->height,
                 presentation);
+            target_cursor.use_group_pages(&group_plan);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -4489,7 +4514,8 @@ progpu_native_status render_scene(
                 frame->height,
                 frame->dpi_scale,
                 semantic_layer_quad_count,
-                semantic_layer_uniform_upload_bytes)) {
+                semantic_layer_uniform_upload_bytes,
+                group_plan.page_count)) {
             discard_encoder();
             return engine->fail(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -5140,6 +5166,7 @@ progpu_native_status render_scene(
             frame->width,
             frame->height,
             presentation);
+        target_cursor.use_group_pages(&group_plan);
         std::array<bool,
             PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>
             layer_scope_materialized{};
@@ -5158,6 +5185,8 @@ progpu_native_status render_scene(
         std::uint32_t layer_scope_depth = 0U;
         std::uint32_t materialized_depth = 0U;
         std::uint32_t transient_materialized_depth = 0U;
+        std::uint32_t compiled_layer_ordinal = 0U;
+        std::array<bool, PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> materialized_on_page{};
         std::uint32_t advanced_operation_index = 0U;
         std::uint32_t current_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -5207,7 +5236,10 @@ progpu_native_status render_scene(
                     const bool cached =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
-                    std::uint32_t slot = transient_materialized_depth;
+                    const std::uint32_t group_page = group_plan.page_of(compiled_layer_ordinal++);
+                    std::uint32_t slot = group_page != 0U
+                        ? semantic::group_page_slot_base + group_page - 1U
+                        : transient_materialized_depth;
                     if (cached) {
                         slot = PROGPU_NATIVE_SCENE_NO_INDEX;
                         for (std::uint32_t cache_index = 0U;
@@ -5224,15 +5256,23 @@ progpu_native_status render_scene(
                                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                                 "A retained cache layer lost its stable GPU slot during compilation."));
                         }
-                    } else {
+                    } else if (group_page == 0U) {
                         ++transient_materialized_depth;
                     }
                     const std::uint32_t depth_index = materialized_depth++;
                     materialized_layers[depth_index] = layer;
-                    materialized_extents[depth_index] = target_extent;
+                    // The source of the composite: on a page, the rectangle of the group.
+                    const auto group_extent = group_page != 0U ? target_cursor.true_current() : target_extent;
+                    materialized_extents[depth_index] = group_extent;
+                    materialized_on_page[depth_index] = group_page != 0U;
                     materialized_slots[depth_index] = slot;
                     semantic_render_bundle_span operation{};
                     operation.kind = semantic_replay_kind::push_layer;
+                    operation.group_page = group_page != 0U;
+                    operation.group_x = group_extent.x;
+                    operation.group_y = group_extent.y;
+                    operation.group_width = group_extent.width;
+                    operation.group_height = group_extent.height;
                     operation.target_layer = slot;
                     operation.source_layer = slot;
                     operation.parent_layer = parent_layer;
@@ -5300,7 +5340,8 @@ progpu_native_status render_scene(
                     const bool cached =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
-                    if (!cached) {
+                    const bool source_on_page = materialized_on_page[source_depth];
+                    if (!cached && !source_on_page) {
                         --transient_materialized_depth;
                     }
                     const std::uint32_t first_vertex =
@@ -5430,6 +5471,16 @@ progpu_native_status render_scene(
                             engine->semantic_layer_slots[source_layer].height,
                             frame->dpi_scale,
                             layer.opacity);
+                        if (source_on_page) {
+                            // The group is at its own place on the page.
+                            const auto& page = engine->semantic_layer_slots[source_layer];
+                            for (std::size_t vertex = first_vertex; vertex < semantic_layer_vertices.size(); ++vertex) {
+                                semantic_layer_vertices[vertex].texture_coordinate[0] +=
+                                    static_cast<float>(source_extent.x) / static_cast<float>(page.width);
+                                semantic_layer_vertices[vertex].texture_coordinate[1] +=
+                                    static_cast<float>(source_extent.y) / static_cast<float>(page.height);
+                            }
+                        }
                     }
                     if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) == 0U &&
                         (engine->engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING) != 0U &&
@@ -5462,6 +5513,7 @@ progpu_native_status render_scene(
                     }
                     semantic_render_bundle_span operation{};
                     operation.kind = semantic_replay_kind::pop_layer;
+                    operation.group_page = source_on_page;
                     operation.operation_id = command.command_id;
                     operation.target_layer = materialized_depth == 0U
                         ? PROGPU_NATIVE_SCENE_NO_INDEX
@@ -6619,6 +6671,69 @@ progpu_native_status render_scene(
                 message);
         };
 
+        // The pages of the groups, deepest first: a group's composite samples the page below it.
+        for (std::uint32_t page = group_plan.page_count; page-- != 0U;) {
+            const std::uint32_t page_slot = semantic::group_page_slot_base + page;
+            if (!begin_pass(page_slot, WGPULoadOp_Clear, false)) {
+                return fail_replay("A semantic group page pass could not be created.");
+            }
+            ++semantic_layer_content_pass_count;
+            std::array<semantic_scissor, PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> open_groups{};
+            std::uint32_t open_group_count = 0U;
+            progpu::native::span_commands::replay_state page_state{};
+            bool page_state_continues = false;
+            for (const auto& operation : engine->semantic_render_bundle_spans) {
+                if (operation.kind == semantic_replay_kind::push_layer) {
+                    if (operation.group_page) {
+                        open_groups[open_group_count++] = {
+                            operation.group_x, operation.group_y,
+                            operation.group_width, operation.group_height, true};
+                    }
+                    continue;
+                }
+                if (operation.kind == semantic_replay_kind::pop_layer) {
+                    if (operation.group_page) {
+                        --open_group_count;
+                        if (operation.target_layer == page_slot) {
+                            page_state_continues = false;
+                            if (!encode_semantic_layer_composite(*engine, pass, operation)) {
+                                return fail_replay("A semantic group could not be composited on its page.");
+                            }
+                            executed_draw_calls += operation.composite_drawable ? 1U : 0U;
+                        }
+                    }
+                    continue;
+                }
+                if (operation.kind != semantic_replay_kind::bundle || operation.target_layer != page_slot) {
+                    continue;
+                }
+                const auto clip = intersect_semantic_scissors(
+                    {operation.clip_x, operation.clip_y, operation.clip_width, operation.clip_height, true},
+                    open_groups[open_group_count - 1U]);
+                if (!clip.drawable || clip.width == 0U || clip.height == 0U) {
+                    continue;
+                }
+                wgpuRenderPassEncoderSetScissorRect(pass, clip.x, clip.y, clip.width, clip.height);
+                if (operation.bundle != nullptr) {
+                    wgpuRenderPassEncoderExecuteBundles(pass, 1U, &operation.bundle);
+                    page_state_continues = false;
+                } else {
+                    if (!page_state_continues) {
+                        page_state.reset();
+                    }
+                    if (!replay_semantic_span_commands(
+                            pass,
+                            engine->semantic_span_commands.data() + operation.command_offset,
+                            operation.command_count,
+                            page_state)) {
+                        return fail_replay("The commands of a semantic group span could not be replayed.");
+                    }
+                    page_state_continues = true;
+                }
+                executed_draw_calls += operation.draw_call_count;
+            }
+            finish_pass();
+        }
         if (!begin_pass(
                 PROGPU_NATIVE_SCENE_NO_INDEX,
                 semantic_preserve_target_active
@@ -6634,6 +6749,14 @@ progpu_native_status render_scene(
              engine->semantic_render_bundle_spans) {
             const bool previous_was_direct = last_was_direct;
             last_was_direct = false;
+            // What is drawn on a page is done: only the composite of a group into a
+            // target that is not a page is left.
+            if ((operation.kind == semantic_replay_kind::push_layer && operation.group_page) ||
+                (operation.target_layer != PROGPU_NATIVE_SCENE_NO_INDEX &&
+                    operation.target_layer >= semantic::group_page_slot_base &&
+                    operation.kind != semantic_replay_kind::push_layer)) {
+                continue;
+            }
             if (skipped_cached_depth != 0U) {
                 if (operation.kind == semantic_replay_kind::push_layer) {
                     ++skipped_cached_depth;
@@ -6741,7 +6864,13 @@ progpu_native_status render_scene(
                 const bool advanced_blend =
                     is_advanced_group_blend(operation.blend_mode) ||
                     operation.replace_axis_clip_background || operation.axis_clip_composite;
-                if (!content_cached || advanced_blend ||
+                if (operation.group_page) {
+                    // Its content is on a page: it is one more draw of the parent's pass.
+                    if (pass != nullptr &&
+                        (active_target_layer != operation.target_layer || active_pass_uses_depth)) {
+                        finish_pass();
+                    }
+                } else if (!content_cached || advanced_blend ||
                     active_pass_uses_depth) {
                     finish_pass();
                 }
@@ -7044,6 +7173,7 @@ progpu_native_status render_scene(
             semantic_render_bundle_hit ? 1U : 0U;
         engine->last_layer_metrics.texture_bytes =
             layer_budget.pooled_bytes() +
+            group_page_bytes +
             cache_budget.pooled_bytes() +
             semantic_destination_texture_bytes;
         engine->last_layer_metrics.vertex_upload_bytes =

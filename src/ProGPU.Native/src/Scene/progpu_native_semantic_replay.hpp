@@ -349,6 +349,13 @@ struct semantic_effect_dispatch {
 };
 
 struct semantic_render_bundle_span {
+    // A push or pop of a group drawn on a page before the root pass, and for a push its
+    // rectangle on the page.
+    bool group_page = false;
+    std::uint32_t group_x = 0U;
+    std::uint32_t group_y = 0U;
+    std::uint32_t group_width = 0U;
+    std::uint32_t group_height = 0U;
     std::shared_ptr<semantic_shader_binding> shader_effect;
     std::shared_ptr<const semantic_rgb_glyph_packet> rgb_glyphs;
     semantic_replay_kind kind = semantic_replay_kind::bundle;

@@ -683,10 +683,26 @@ bool prepare_semantic_layer_resources(
     std::uint32_t frame_height,
     float dpi_scale,
     std::uint32_t composite_count,
-    std::uint64_t& uploaded_uniform_bytes) {
+    std::uint64_t& uploaded_uniform_bytes,
+    std::uint32_t group_page_count) {
     uploaded_uniform_bytes = 0U;
     if (!create_layer_binding_resources(engine)) {
         return false;
+    }
+    for (std::uint32_t page = 0U; page < group_page_count; ++page) {
+        const std::uint32_t index = semantic::group_page_slot_base + page;
+        if (!ensure_semantic_layer_slot(engine, index, frame_width, frame_height)) {
+            return false;
+        }
+        auto& slot = engine.semantic_layer_slots[index];
+        const gpu_uniforms uniforms = create_uniforms(slot.width, slot.height, dpi_scale);
+        if (engine.upload_uniform_if_changed(
+                slot.uniform_buffer,
+                uniforms,
+                slot.cached_uniforms,
+                slot.uniform_cache_valid)) {
+            uploaded_uniform_bytes += sizeof(gpu_uniforms);
+        }
     }
     for (std::uint32_t index = 0U;
          index < budget.peak_materialized_depth;
