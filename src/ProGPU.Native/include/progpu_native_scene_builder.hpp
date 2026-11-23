@@ -516,6 +516,18 @@ public:
         std::span<const progpu_native_scene_path_boolean_node>
             boolean_nodes = {}) noexcept;
 
+    // The index of the resource the last successful draw_paths added.
+    bool last_path_resource(std::uint32_t& resource_index) const noexcept;
+
+    // Draws the paths of a resource draw_paths added to this generation again, under
+    // another state and other brushes, without copying the segments into the stream.
+    bool draw_path_resource(
+        std::uint32_t resource_index,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
     bool draw_image(
         std::uint32_t image_resource_index,
         const progpu_native_scene_image_draw& image,
