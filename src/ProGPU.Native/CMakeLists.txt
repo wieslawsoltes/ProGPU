@@ -129,6 +129,9 @@ set(PROGPU_NATIVE_GROUP_BLEND_SHADER
 set(PROGPU_NATIVE_ADVANCED_BLEND_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/AdvancedBlend.wgsl"
     CACHE FILEPATH "Shared ProGPU destination-aware blend shader source")
+set(PROGPU_NATIVE_LAYER_EFFECTS_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/LayerEffects.wgsl"
+    CACHE FILEPATH "Shared ProGPU layer effects shader source")
 set(PROGPU_NATIVE_3D_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/Native3D.wgsl"
     CACHE FILEPATH "Shared ProGPU native retained 3D shader source")
@@ -651,6 +654,20 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU advanced-blend shader"
     VERBATIM)
+set(generated_layer_effects_shader
+    "${generated_directory}/LayerEffectsWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_layer_effects_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_LAYER_EFFECTS_SHADER}"
+        "-DOUTPUT=${generated_layer_effects_shader}"
+        "-DSYMBOL=layer_effects_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_LAYER_EFFECTS_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU layer effects shader"
+    VERBATIM)
 set(generated_native_3d_shader
     "${generated_directory}/Native3DWgsl.generated.hpp")
 add_custom_command(
@@ -724,6 +741,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_group_drop_shadow_compose_shader}"
         "${generated_group_blend_shader}"
         "${generated_advanced_blend_shader}"
+        "${generated_layer_effects_shader}"
         "${generated_native_3d_shader}"
         "${generated_hit_test_shader}"
         "${generated_hit_test_readback_shader}")
@@ -734,6 +752,7 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Geometry/progpu_native_geometry_utility.cpp
     src/Geometry/progpu_native_path_measure_abi.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
+    src/Backend/progpu_native_layer_effects.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
     src/Backend/progpu_native.cpp
     src/Backend/progpu_native_child_engine.hpp
