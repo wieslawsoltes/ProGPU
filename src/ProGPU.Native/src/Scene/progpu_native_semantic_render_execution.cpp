@@ -5758,7 +5758,8 @@ progpu_native_status render_scene(
                 try {
                     auto packet = std::make_shared<semantic_rgb_glyph_packet>();
                     packet->policy = {draw.gamma, draw.enhanced_contrast, draw.cleartype_level,
-                        draw.pixel_geometry, rgb_glyph_filter_model::full_pixel_box_8x8};
+                        draw.pixel_geometry, static_cast<rgb_glyph_filter_model>(draw.filter_model),
+                        draw.coverage_transfer};
                     const auto resource = read_resource(command.resource_index);
                     packet->segments.resize(resource.auxiliary_size / sizeof(progpu_native_path_segment));
                     std::memcpy(packet->segments.data(), bytes + resource.auxiliary_offset, resource.auxiliary_size);
