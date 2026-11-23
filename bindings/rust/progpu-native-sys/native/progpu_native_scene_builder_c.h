@@ -63,6 +63,11 @@ int progpu_native_scene_builder_add_rounded_rectangle_mask(progpu_native_scene_b
    clips nested in each other, evaluated per draw without a mask texture. */
 int progpu_native_scene_builder_add_analytic_mask_chain(progpu_native_scene_builder* builder,
     const progpu_native_scene_layer_mask* masks, size_t mask_count, uint32_t* resource_index);
+/* An opacity mask of a brush (a gradient): bounds in the coordinates of the mask, its transform
+   into the target. stops are the stops of the brush, at most PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS. */
+int progpu_native_scene_builder_add_brush_mask(progpu_native_scene_builder* builder,
+    const progpu_native_scene_layer_brush_mask* mask, const progpu_native_scene_gradient_stop* stops,
+    size_t stop_count, uint32_t* resource_index);
 int progpu_native_scene_builder_add_vector_clip_mask(progpu_native_scene_builder* builder,
     const progpu_native_scene_clip_path* paths, size_t path_count, const progpu_native_path_segment* segments,
     size_t segment_count, float opacity, uint32_t* resource_index);

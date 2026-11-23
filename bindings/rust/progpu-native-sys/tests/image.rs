@@ -133,3 +133,249 @@ fn what_is_not_a_sound_png_is_refused_with_its_error() {
         assert_eq!(error, PROGPU_NATIVE_IMAGE_ERROR_INVALID_ARGUMENT);
     }
 }
+
+/// Two colours side by side, 16 x 16 pixels, written by libjpeg.
+const BASELINE_JPEG: &str = concat!(
+    "ffd8ffe000104a46494600010100000100010000ffdb00430002010101010102010101020202020204030202",
+    "02020504040304060506060605060606070908060709070606080b08090a0a0a0a0a06080b0c0b0a0c090a0a",
+    "0affdb004301020202020202050303050a0706070a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0affc000110800100010030111000211010311",
+    "01ffc4001f0000010501010101010100000000000000000102030405060708090a0bffc400b5100002010303",
+    "020403050504040000017d01020300041105122131410613516107227114328191a1082342b1c11552d1f024",
+    "33627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a63646566",
+    "6768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7",
+    "b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffc400",
+    "1f0100030101010101010101010000000000000102030405060708090a0bffc400b511000201020404030407",
+    "05040400010277000102031104052131061241510761711322328108144291a1b1c109233352f0156272d10a",
+    "162434e125f11718191a262728292a35363738393a434445464748494a535455565758595a63646566676869",
+    "6a737475767778797a82838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9",
+    "bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae2e3e4e5e6e7e8e9eaf2f3f4f5f6f7f8f9faffda000c030100",
+    "02110311003f00f96ebf9fcff510f2faff006b0ff14cf50aff0014cff6b0f2faff006b0ff14cffd9",
+);
+
+/// Two colours side by side, 16 x 16 pixels, written by libjpeg.
+const PROGRESSIVE_JPEG: &str = concat!(
+    "ffd8ffe000104a46494600010100000100010000ffdb00430002010101010102010101020202020204030202",
+    "02020504040304060506060605060606070908060709070606080b08090a0a0a0a0a06080b0c0b0a0c090a0a",
+    "0affdb004301020202020202050303050a0706070a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0affc200110800100010030122000211010311",
+    "01ffc4001500010100000000000000000000000000000607ffc4001401010000000000000000000000000000",
+    "0006ffda000c030100021003100000019697505d5b7fffc40014100100000000000000000000000000000020",
+    "ffda00080101000105021fffc40018110002030000000000000000000000000000074483c3ffda0008010301",
+    "013f0170c2b333ffc40018110002030000000000000000000000000000074483c3ffda0008010201013f014f",
+    "4daf43ffc40014100100000000000000000000000000000020ffda0008010100063f021fffc4001410010000",
+    "0000000000000000000000000020ffda0008010100013f211fffda000c0301000200030000001003ffc40014",
+    "110100000000000000000000000000000000ffda0008010301013f1037ffc400141101000000000000000000",
+    "00000000000000ffda0008010201013f1037ffc40014100100000000000000000000000000000020ffda0008",
+    "010100013f101fffd9",
+);
+
+fn from_hex(text: &str) -> Vec<u8> {
+    (0..text.len() / 2).map(|at| u8::from_str_radix(&text[at * 2..at * 2 + 2], 16).unwrap()).collect()
+}
+
+/// The format, size and RGBA pixels of a file through the C ABI of every format.
+fn decode_any(file: &[u8]) -> Result<(u32, u32, u32, Vec<u8>), u32> {
+    let (mut format, mut width, mut height, mut size, mut error) = (0u32, 0u32, 0u32, 0usize, 0u32);
+    // SAFETY: the file and the answers outlive the calls; `rgba` holds `size` bytes.
+    unsafe {
+        if progpu_native_image_read_size(file.as_ptr(), file.len(), &mut format, &mut width, &mut height, &mut size, &mut error) == 0 {
+            return Err(error);
+        }
+        let mut rgba = vec![0u8; size];
+        if progpu_native_image_decode_rgba(file.as_ptr(), file.len(), rgba.as_mut_ptr(), rgba.len(), &mut error) == 0 {
+            return Err(error);
+        }
+        Ok((format, width, height, rgba))
+    }
+}
+
+fn rgba_at(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+    let at = ((y * width + x) * 4) as usize;
+    [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
+}
+
+fn near(actual: [u8; 4], expected: [u8; 4], tolerance: u8) -> bool {
+    actual.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= tolerance)
+}
+
+#[test]
+fn baseline_and_progressive_jpegs_decode() {
+    for (name, file) in [("baseline", BASELINE_JPEG), ("progressive", PROGRESSIVE_JPEG)] {
+        let (format, width, height, rgba) = decode_any(&from_hex(file)).unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!((format, width, height), (PROGPU_NATIVE_IMAGE_FORMAT_JPEG, 16, 16), "{name}");
+        assert!(near(rgba_at(&rgba, width, 2, 8), [200, 40, 30, 255], 6), "{name}: {:?}", rgba_at(&rgba, width, 2, 8));
+        assert!(near(rgba_at(&rgba, width, 13, 8), [30, 60, 200, 255], 6), "{name}: {:?}", rgba_at(&rgba, width, 13, 8));
+    }
+}
+
+#[test]
+fn a_jpeg_cut_short_shows_what_it_holds() {
+    let file = from_hex(BASELINE_JPEG);
+    let (_, width, _, rgba) = decode_any(&file[..file.len() - 12]).expect("the headers and part of the scan");
+    assert!(near(rgba_at(&rgba, width, 2, 2), [200, 40, 30, 255], 8));
+    assert!(decode_any(&file[..20]).is_err(), "no frame header");
+}
+
+/// A 24-bit BMP of two rows, bottom up, with padded rows, and a 32-bit one with bit fields.
+#[test]
+fn bmps_decode() {
+    let mut file = Vec::new();
+    file.extend_from_slice(b"BM");
+    file.extend_from_slice(&(54u32 + 16).to_le_bytes());
+    file.extend_from_slice(&0u32.to_le_bytes());
+    file.extend_from_slice(&54u32.to_le_bytes());
+    file.extend_from_slice(&40u32.to_le_bytes());
+    file.extend_from_slice(&2i32.to_le_bytes());
+    file.extend_from_slice(&2i32.to_le_bytes());
+    file.extend_from_slice(&1u16.to_le_bytes());
+    file.extend_from_slice(&24u16.to_le_bytes());
+    file.extend_from_slice(&[0u8; 24]);
+    file.extend_from_slice(&[3, 2, 1, 6, 5, 4, 0, 0]); // the bottom row, blue first
+    file.extend_from_slice(&[9, 8, 7, 12, 11, 10, 0, 0]);
+    let (format, width, height, rgba) = decode_any(&file).expect("a 24-bit BMP");
+    assert_eq!((format, width, height), (PROGPU_NATIVE_IMAGE_FORMAT_BMP, 2, 2));
+    assert_eq!(rgba, [7, 8, 9, 255, 10, 11, 12, 255, 1, 2, 3, 255, 4, 5, 6, 255]);
+
+    let mut file = Vec::new();
+    file.extend_from_slice(b"BM");
+    file.extend_from_slice(&(70u32 + 4).to_le_bytes());
+    file.extend_from_slice(&0u32.to_le_bytes());
+    file.extend_from_slice(&70u32.to_le_bytes());
+    file.extend_from_slice(&56u32.to_le_bytes());
+    file.extend_from_slice(&1i32.to_le_bytes());
+    file.extend_from_slice(&(-1i32).to_le_bytes());
+    file.extend_from_slice(&1u16.to_le_bytes());
+    file.extend_from_slice(&32u16.to_le_bytes());
+    file.extend_from_slice(&3u32.to_le_bytes());
+    file.extend_from_slice(&[0u8; 20]);
+    for mask in [0x0000_FF00u32, 0x00FF_0000, 0xFF00_0000, 0x0000_00FF] {
+        file.extend_from_slice(&mask.to_le_bytes());
+    }
+    file.extend_from_slice(&[0x40, 0x30, 0x20, 0x10]);
+    let (_, _, _, rgba) = decode_any(&file).expect("a BMP with bit fields");
+    assert_eq!(rgba, [0x30, 0x20, 0x10, 0x40]);
+}
+
+/// A GIF of 2 x 2 pixels with a transparent colour: the codes 4 (clear), 0, 1, 2, 0, 5 (end).
+/// The code width grows from three bits to four once the table holds eight codes.
+#[test]
+fn a_gif_decodes_with_its_transparent_colour() {
+    let mut file = Vec::new();
+    file.extend_from_slice(b"GIF89a");
+    file.extend_from_slice(&[2, 0, 2, 0, 0x81, 0, 0]);
+    file.extend_from_slice(&[10, 20, 30, 40, 50, 60, 70, 80, 90, 0, 0, 0]);
+    file.extend_from_slice(&[0x21, 0xF9, 4, 1, 0, 0, 2, 0]);
+    file.extend_from_slice(&[0x2C, 0, 0, 0, 0, 2, 0, 2, 0, 0]);
+    file.push(2);
+    let codes = [(4u32, 3u32), (0, 3), (1, 3), (2, 3), (0, 4), (5, 4)];
+    let (mut bits, mut count, mut data) = (0u32, 0u32, Vec::new());
+    for (code, width) in codes {
+        bits |= code << count;
+        count += width;
+        while count >= 8 {
+            data.push(bits as u8);
+            bits >>= 8;
+            count -= 8;
+        }
+    }
+    if count > 0 {
+        data.push(bits as u8);
+    }
+    file.push(data.len() as u8);
+    file.extend_from_slice(&data);
+    file.extend_from_slice(&[0, 0x3B]);
+    let (format, width, height, rgba) = decode_any(&file).expect("a GIF");
+    assert_eq!((format, width, height), (PROGPU_NATIVE_IMAGE_FORMAT_GIF, 2, 2));
+    assert_eq!(rgba_at(&rgba, 2, 0, 0), [10, 20, 30, 255]);
+    assert_eq!(rgba_at(&rgba, 2, 1, 0), [40, 50, 60, 255]);
+    assert_eq!(rgba_at(&rgba, 2, 0, 1)[3], 0, "the transparent colour");
+    assert_eq!(rgba_at(&rgba, 2, 1, 1), [10, 20, 30, 255]);
+}
+
+#[test]
+fn the_format_of_a_png_is_told_and_other_bytes_are_refused() {
+    let file = png(1, 1, 4, &[1, 2, 3, 4]);
+    let (format, _, _, rgba) = decode_any(&file).expect("a PNG");
+    assert_eq!(format, PROGPU_NATIVE_IMAGE_FORMAT_PNG);
+    assert_eq!(rgba, [1, 2, 3, 4]);
+    assert_eq!(decode_any(b"not an image"), Err(PROGPU_NATIVE_IMAGE_ERROR_INVALID_SIGNATURE));
+}
+
+fn encoded(call: impl FnOnce(*mut *mut u8, *mut usize, *mut u32) -> i32) -> Result<Vec<u8>, u32> {
+    let (mut output, mut size, mut error) = (ptr::null_mut(), 0usize, 0u32);
+    if call(&mut output, &mut size, &mut error) == 0 {
+        return Err(error);
+    }
+    // SAFETY: on success the encoder hands out `size` bytes at `output`, released here.
+    unsafe {
+        let bytes = std::slice::from_raw_parts(output, size).to_vec();
+        progpu_native_image_free(output);
+        Ok(bytes)
+    }
+}
+
+/// A picture with gradients and a translucent band.
+fn picture(width: u32, height: u32) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let alpha = if y % 5 == 0 { 128 } else { 255 };
+            rgba.extend_from_slice(&[(x * 255 / width) as u8, (y * 255 / height) as u8, ((x + y) % 256) as u8, alpha]);
+        }
+    }
+    rgba
+}
+
+#[test]
+fn a_png_written_at_every_level_reads_back_exactly() {
+    let (width, height) = (37, 23);
+    let rgba = picture(width, height);
+    let mut sizes = Vec::new();
+    for level in [
+        PROGPU_NATIVE_IMAGE_PNG_NO_COMPRESSION,
+        PROGPU_NATIVE_IMAGE_PNG_FASTEST,
+        PROGPU_NATIVE_IMAGE_PNG_OPTIMAL,
+        PROGPU_NATIVE_IMAGE_PNG_SMALLEST,
+    ] {
+        // SAFETY: the pixels are live and the out pointers come from `encoded`.
+        let file = encoded(|output, size, error| unsafe {
+            progpu_native_image_encode_png(rgba.as_ptr(), rgba.len(), width, height, level, output, size, error)
+        })
+        .expect("written");
+        let (format, w, h, back) = decode_any(&file).expect("read back");
+        assert_eq!((format, w, h), (PROGPU_NATIVE_IMAGE_FORMAT_PNG, width, height));
+        assert_eq!(back, rgba, "level {level}");
+        sizes.push(file.len());
+    }
+    assert!(sizes[2] < sizes[0], "compression makes the file smaller: {sizes:?}");
+}
+
+#[test]
+fn a_jpeg_written_reads_back_near_its_colours() {
+    let (width, height) = (48, 32);
+    let mut rgba = Vec::new();
+    for _ in 0..width * height {
+        rgba.extend_from_slice(&[200, 60, 40, 255]);
+    }
+    for quality in [50, 95] {
+        // SAFETY: the pixels are live and the out pointers come from `encoded`.
+        let file = encoded(|output, size, error| unsafe {
+            progpu_native_image_encode_jpeg(rgba.as_ptr(), rgba.len(), width, height, quality, output, size, error)
+        })
+        .expect("written");
+        let (format, w, h, back) = decode_any(&file).expect("read back");
+        assert_eq!((format, w, h), (PROGPU_NATIVE_IMAGE_FORMAT_JPEG, width, height));
+        assert!(near(rgba_at(&back, width, 20, 15), [200, 60, 40, 255], 4), "quality {quality}: {:?}", rgba_at(&back, width, 20, 15));
+    }
+}
+
+#[test]
+fn an_encoder_refuses_too_few_pixels() {
+    let rgba = [0u8; 8];
+    // SAFETY: the pixels are live and the out pointers come from `encoded`.
+    let result = encoded(|output, size, error| unsafe {
+        progpu_native_image_encode_png(rgba.as_ptr(), rgba.len(), 4, 4, PROGPU_NATIVE_IMAGE_PNG_OPTIMAL, output, size, error)
+    });
+    assert_eq!(result, Err(PROGPU_NATIVE_IMAGE_ERROR_INVALID_ARGUMENT));
+}

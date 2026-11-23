@@ -152,6 +152,15 @@ unsafe extern "C" {
     ) -> ::core::ffi::c_int;
 }
 unsafe extern "C" {
+    pub fn progpu_native_scene_builder_add_brush_mask(
+        builder: *mut progpu_native_scene_builder,
+        mask: *const progpu_native_scene_layer_brush_mask,
+        stops: *const progpu_native_scene_gradient_stop,
+        stop_count: usize,
+        resource_index: *mut u32,
+    ) -> ::core::ffi::c_int;
+}
+unsafe extern "C" {
     pub fn progpu_native_scene_builder_add_vector_clip_mask(
         builder: *mut progpu_native_scene_builder,
         paths: *const progpu_native_scene_clip_path,
