@@ -704,6 +704,8 @@ progpu_native_status render_paths(
         (upload_draw_payload || opacity_changed ||
             engine->analytic_material_owner_hash != 0U);
     bool uploaded_uniforms = false;
+    std::uint64_t path_vertex_upload_bytes = 0U;
+    std::uint64_t path_index_upload_bytes = 0U;
     if (vertex_bytes != 0U &&
         (!engine->ensure_path_vertex_buffer(vertex_bytes) ||
          !engine->ensure_path_index_buffer(index_bytes) ||
@@ -724,18 +726,19 @@ progpu_native_status render_paths(
             engine->cached_analytic_uniforms,
             engine->analytic_uniform_cache_valid);
         if (upload_draw_payload) {
-            wgpuQueueWriteBuffer(
-                engine->queue,
-                engine->path_vertex_buffer,
-                0U,
-                engine->path_vertices.data(),
-                vertex_bytes);
-            wgpuQueueWriteBuffer(
-                engine->queue,
-                engine->path_index_buffer,
-                0U,
-                engine->path_indices.data(),
-                index_bytes);
+            const auto write_to = [engine](WGPUBuffer buffer) noexcept {
+                return [engine, buffer](std::size_t offset, const std::byte* data, std::size_t size) noexcept {
+                    wgpuQueueWriteBuffer(engine->queue, buffer, offset, data, size);
+                };
+            };
+            path_vertex_upload_bytes = engine->path_vertex_mirror.upload(
+                std::span(reinterpret_cast<const std::byte*>(engine->path_vertices.data()),
+                    static_cast<std::size_t>(vertex_bytes)),
+                write_to(engine->path_vertex_buffer));
+            path_index_upload_bytes = engine->path_index_mirror.upload(
+                std::span(reinterpret_cast<const std::byte*>(engine->path_indices.data()),
+                    static_cast<std::size_t>(index_bytes)),
+                write_to(engine->path_index_buffer));
             engine->path_gpu_cache_valid = retain_compiled_payload;
             engine->geometry_gpu_cache_valid = false;
         }
@@ -1610,8 +1613,8 @@ progpu_native_status render_paths(
         metrics->atlas_width = engine->path_atlas_size;
         metrics->atlas_height = engine->path_atlas_size;
         metrics->atlas_generation = engine->path_atlas_generation;
-        metrics->vertex_upload_bytes = upload_draw_payload ? vertex_bytes : 0U;
-        metrics->index_upload_bytes = upload_draw_payload ? index_bytes : 0U;
+        metrics->vertex_upload_bytes = path_vertex_upload_bytes;
+        metrics->index_upload_bytes = path_index_upload_bytes;
         metrics->brush_upload_bytes = upload_brush_payload ? brush_bytes : 0U;
         metrics->path_upload_bytes = path_upload_bytes;
         metrics->coverage_staging_bytes = coverage_staging_bytes;
