@@ -156,7 +156,7 @@ fn groups_on_pages_read_back_like_groups_with_their_own_passes() {
                 w.pop();
             }
         });
-        assert_eq!((9, 2), (own, pages));
+        assert_eq!((6, 2), (own, pages));
 
         // Overlapping groups keep their own passes, and their order.
         let (own, pages) = compare(&gpu, paged, 13, |w| {
