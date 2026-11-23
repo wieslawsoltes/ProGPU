@@ -980,6 +980,21 @@ bool create_semantic_layer_mask_binding(
     if (!create_uniforms_for(primary_source, uniforms)) {
         return false;
     }
+    if (!chained) {
+        // One mask of its own: the uniforms go into a slot of a shared page
+        // instead of a buffer and a bind group made for this span.
+        std::uint32_t slot = progpu::native::mask_slots::no_slot;
+        WGPUBindGroup bind_group = take_layer_mask_slot(
+            engine, uniforms, slot);
+        if (bind_group == nullptr) {
+            return false;
+        }
+        operation.mask_bind_group = bind_group;
+        operation.mask_slot = slot;
+        operation.mask_uniform_upload_bytes = sizeof(uniforms);
+        ++engine.layer_mask_bind_group_generation;
+        return true;
+    }
 
     WGPUBufferDescriptor descriptor{};
     descriptor.label = ::progpu::native::webgpu::string_view(
@@ -998,7 +1013,7 @@ bool create_semantic_layer_mask_binding(
         sizeof(uniforms));
     operation.mask_uniform_buffer = buffer;
     operation.mask_uniform_upload_bytes = sizeof(uniforms);
-    if (chained) {
+    {
         progpu::native::gpu_mask_chain_uniforms chain_uniforms{};
         for (std::uint32_t index = 1U;
              index < parsed.chain.mask_count;
@@ -1050,21 +1065,6 @@ bool create_semantic_layer_mask_binding(
         operation.mask_chain_uniform_buffer = chain_buffer;
         operation.mask_chain_bind_group = chain_bind_group;
         operation.mask_uniform_upload_bytes += sizeof(chain_uniforms);
-    } else {
-        WGPUBindGroup bind_group = create_layer_mask_bind_group(
-            engine,
-            engine.image_linear_sampler,
-            engine.layer_mask_dummy_view,
-            "ProGPU retained semantic analytic mask binding",
-            buffer);
-        if (bind_group == nullptr) {
-            wgpuBufferDestroy(buffer);
-            wgpuBufferRelease(buffer);
-            operation.mask_uniform_buffer = nullptr;
-            operation.mask_uniform_upload_bytes = 0U;
-            return false;
-        }
-        operation.mask_bind_group = bind_group;
     }
     ++engine.layer_mask_bind_group_generation;
     return true;

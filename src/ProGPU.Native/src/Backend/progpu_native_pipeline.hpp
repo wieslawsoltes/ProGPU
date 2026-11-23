@@ -107,7 +107,16 @@ WGPUBindGroup create_layer_mask_bind_group(
     WGPUSampler sampler,
     WGPUTextureView view,
     const char* label,
-    WGPUBuffer uniform_buffer = nullptr);
+    WGPUBuffer uniform_buffer = nullptr,
+    std::uint64_t uniform_offset = 0U);
+
+// Takes a uniform slot for the analytic mask of a clip span and stages the
+// uniforms in it. The bind group of the slot comes back with a reference of
+// its own for the caller, who gives the slot back when the span goes.
+WGPUBindGroup take_layer_mask_slot(
+    progpu_native_engine& engine,
+    const gpu_mask_sampling_uniforms& uniforms,
+    std::uint32_t& slot);
 
 bool create_layer_mask_binding_resources(progpu_native_engine& engine);
 bool create_layer_mask_resources(progpu_native_engine& engine);

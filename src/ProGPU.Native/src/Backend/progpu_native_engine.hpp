@@ -10,6 +10,7 @@
 #include "progpu_native_glyph_outline_registry.hpp"
 #include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_gpu_records.hpp"
+#include "progpu_native_mask_uniform_slots.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_identity.hpp"
@@ -370,6 +371,12 @@ struct progpu_native_engine {
     std::uint32_t layer_external_mask_width = 0U;
     std::uint32_t layer_external_mask_height = 0U;
     std::uint32_t layer_mask_bind_group_generation = 0U;
+    // The uniforms of the analytic masks of clip spans: pages of slots, one
+    // buffer per page and one bind group per slot, see
+    // progpu_native_mask_uniform_slots.hpp.
+    progpu::native::mask_slots::slot_table layer_mask_slots;
+    std::vector<WGPUBuffer> layer_mask_slot_pages;
+    std::vector<WGPUBindGroup> layer_mask_slot_bind_groups;
     gpu_mask_sampling_uniforms cached_layer_mask_uniforms{};
     bool layer_mask_uniform_cache_valid = false;
     WGPUShaderModule group_blend_shader = nullptr;
@@ -769,7 +776,47 @@ struct progpu_native_engine {
         trace_compute_pipeline(selected_pipeline, "encoded-indirect", 0U, 0U, 0U);
     }
 
+    // Sends the staged uniforms of mask slots to their pages. Queue writes
+    // take effect in the order of the submissions, so this runs before each
+    // of them.
+    void flush_layer_mask_slots() noexcept {
+        layer_mask_slots.flush([this](
+            std::uint32_t page,
+            std::uint32_t offset,
+            const std::byte* bytes,
+            std::uint32_t size) noexcept {
+            if (page < layer_mask_slot_pages.size() &&
+                layer_mask_slot_pages[page] != nullptr) {
+                wgpuQueueWriteBuffer(
+                    queue,
+                    layer_mask_slot_pages[page],
+                    offset,
+                    bytes,
+                    size);
+            }
+        });
+    }
+
+    // Only once no span holds a slot any more.
+    void release_layer_mask_slots() noexcept {
+        for (auto& bind_group : layer_mask_slot_bind_groups) {
+            if (bind_group != nullptr) {
+                wgpuBindGroupRelease(bind_group);
+            }
+        }
+        layer_mask_slot_bind_groups.clear();
+        for (auto& page : layer_mask_slot_pages) {
+            if (page != nullptr) {
+                wgpuBufferDestroy(page);
+                wgpuBufferRelease(page);
+            }
+        }
+        layer_mask_slot_pages.clear();
+        layer_mask_slots.clear();
+    }
+
     void submit(WGPUCommandBuffer command) noexcept {
+        flush_layer_mask_slots();
         last_submission_index = progpu::native::webgpu::submit(
             queue,
             1U,
@@ -1379,6 +1426,8 @@ struct progpu_native_engine {
                 wgpuBindGroupRelease(span.mask_bind_group);
                 span.mask_bind_group = nullptr;
             }
+            layer_mask_slots.give(span.mask_slot);
+            span.mask_slot = progpu::native::mask_slots::no_slot;
             if (span.mask_chain_bind_group != nullptr) {
                 wgpuBindGroupRelease(span.mask_chain_bind_group);
                 span.mask_chain_bind_group = nullptr;
@@ -1887,6 +1936,7 @@ struct progpu_native_engine {
         if (layer_analytic_mask_bind_group != nullptr) {
             wgpuBindGroupRelease(layer_analytic_mask_bind_group);
         }
+        release_layer_mask_slots();
         if (layer_mask_dummy_view != nullptr) {
             wgpuTextureViewRelease(layer_mask_dummy_view);
         }

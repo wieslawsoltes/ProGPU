@@ -383,6 +383,9 @@ struct semantic_render_bundle_span {
     WGPUTexture mask_texture = nullptr;
     WGPUTextureView mask_texture_view = nullptr;
     WGPUBindGroup mask_bind_group = nullptr;
+    // The uniform slot mask_bind_group binds, for a mask that has no buffer
+    // of its own (progpu_native_mask_uniform_slots.hpp).
+    std::uint32_t mask_slot = 0xFFFFFFFFU;
     WGPUBindGroup mask_chain_bind_group = nullptr;
     WGPUBindGroup advanced_blend_bind_group = nullptr;
     std::uint32_t advanced_uniform_offset = 0U;
