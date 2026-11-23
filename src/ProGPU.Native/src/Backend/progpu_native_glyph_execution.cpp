@@ -1620,7 +1620,8 @@ progpu_native_status render_glyphs(
                     static_cast<std::size_t>(instance_bytes)),
                 [engine](std::size_t offset, const std::byte* data, std::size_t size) noexcept {
                     wgpuQueueWriteBuffer(engine->queue, engine->text_vertex_buffer, offset, data, size);
-                });
+                },
+                engine->counted_uploads);
             engine->glyph_gpu_cache_valid = retain_compiled_payload;
         }
     }

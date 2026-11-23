@@ -510,6 +510,32 @@ progpu_native_status progpu_native_engine_update_scene_delta(
     return progpu::native::execution::update_scene_delta(engine, delta, metrics);
 }
 
+progpu_native_status progpu_native_engine_take_upload_counters(
+    progpu_native_engine* engine,
+    progpu_native_upload_counters* counters) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Upload counters are owner-thread affine.");
+    }
+    if (counters == nullptr || counters->struct_size < sizeof(progpu_native_upload_counters)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "Upload counters need a complete structure.");
+    }
+    counters->reserved = 0U;
+    counters->uploaded_bytes = engine->upload_counters.uploaded_bytes;
+    counters->shifted_bytes = engine->upload_counters.shifted_bytes;
+    counters->upload_nanoseconds = engine->upload_counters.upload_nanoseconds;
+    counters->shifted_nanoseconds = engine->upload_counters.shifted_nanoseconds;
+    counters->counting_nanoseconds = engine->upload_counters.counting_nanoseconds;
+    engine->upload_counters = {};
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status progpu_native_engine_register_glyph_outlines(
     progpu_native_engine* engine,
     const progpu_native_registered_glyph_outline* outlines,
