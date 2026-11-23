@@ -14,6 +14,10 @@ pub const PROGPU_NATIVE_IMAGE_FORMAT_PNG: u32 = 1;
 pub const PROGPU_NATIVE_IMAGE_FORMAT_JPEG: u32 = 2;
 pub const PROGPU_NATIVE_IMAGE_FORMAT_GIF: u32 = 3;
 pub const PROGPU_NATIVE_IMAGE_FORMAT_BMP: u32 = 4;
+pub const PROGPU_NATIVE_IMAGE_PNG_NO_COMPRESSION: u32 = 0;
+pub const PROGPU_NATIVE_IMAGE_PNG_FASTEST: u32 = 1;
+pub const PROGPU_NATIVE_IMAGE_PNG_OPTIMAL: u32 = 2;
+pub const PROGPU_NATIVE_IMAGE_PNG_SMALLEST: u32 = 3;
 unsafe extern "C" {
     pub fn progpu_native_image_png_read_size(
         data: *const u8,
@@ -52,4 +56,31 @@ unsafe extern "C" {
         rgba_size: usize,
         error: *mut u32,
     ) -> ::core::ffi::c_int;
+}
+unsafe extern "C" {
+    pub fn progpu_native_image_encode_png(
+        rgba: *const u8,
+        rgba_size: usize,
+        width: u32,
+        height: u32,
+        level: u32,
+        output: *mut *mut u8,
+        output_size: *mut usize,
+        error: *mut u32,
+    ) -> ::core::ffi::c_int;
+}
+unsafe extern "C" {
+    pub fn progpu_native_image_encode_jpeg(
+        rgba: *const u8,
+        rgba_size: usize,
+        width: u32,
+        height: u32,
+        quality: u32,
+        output: *mut *mut u8,
+        output_size: *mut usize,
+        error: *mut u32,
+    ) -> ::core::ffi::c_int;
+}
+unsafe extern "C" {
+    pub fn progpu_native_image_free(output: *mut u8);
 }

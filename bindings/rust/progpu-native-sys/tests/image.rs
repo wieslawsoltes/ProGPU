@@ -301,3 +301,81 @@ fn the_format_of_a_png_is_told_and_other_bytes_are_refused() {
     assert_eq!(rgba, [1, 2, 3, 4]);
     assert_eq!(decode_any(b"not an image"), Err(PROGPU_NATIVE_IMAGE_ERROR_INVALID_SIGNATURE));
 }
+
+fn encoded(call: impl FnOnce(*mut *mut u8, *mut usize, *mut u32) -> i32) -> Result<Vec<u8>, u32> {
+    let (mut output, mut size, mut error) = (ptr::null_mut(), 0usize, 0u32);
+    if call(&mut output, &mut size, &mut error) == 0 {
+        return Err(error);
+    }
+    // SAFETY: on success the encoder hands out `size` bytes at `output`, released here.
+    unsafe {
+        let bytes = std::slice::from_raw_parts(output, size).to_vec();
+        progpu_native_image_free(output);
+        Ok(bytes)
+    }
+}
+
+/// A picture with gradients and a translucent band.
+fn picture(width: u32, height: u32) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let alpha = if y % 5 == 0 { 128 } else { 255 };
+            rgba.extend_from_slice(&[(x * 255 / width) as u8, (y * 255 / height) as u8, ((x + y) % 256) as u8, alpha]);
+        }
+    }
+    rgba
+}
+
+#[test]
+fn a_png_written_at_every_level_reads_back_exactly() {
+    let (width, height) = (37, 23);
+    let rgba = picture(width, height);
+    let mut sizes = Vec::new();
+    for level in [
+        PROGPU_NATIVE_IMAGE_PNG_NO_COMPRESSION,
+        PROGPU_NATIVE_IMAGE_PNG_FASTEST,
+        PROGPU_NATIVE_IMAGE_PNG_OPTIMAL,
+        PROGPU_NATIVE_IMAGE_PNG_SMALLEST,
+    ] {
+        // SAFETY: the pixels are live and the out pointers come from `encoded`.
+        let file = encoded(|output, size, error| unsafe {
+            progpu_native_image_encode_png(rgba.as_ptr(), rgba.len(), width, height, level, output, size, error)
+        })
+        .expect("written");
+        let (format, w, h, back) = decode_any(&file).expect("read back");
+        assert_eq!((format, w, h), (PROGPU_NATIVE_IMAGE_FORMAT_PNG, width, height));
+        assert_eq!(back, rgba, "level {level}");
+        sizes.push(file.len());
+    }
+    assert!(sizes[2] < sizes[0], "compression makes the file smaller: {sizes:?}");
+}
+
+#[test]
+fn a_jpeg_written_reads_back_near_its_colours() {
+    let (width, height) = (48, 32);
+    let mut rgba = Vec::new();
+    for _ in 0..width * height {
+        rgba.extend_from_slice(&[200, 60, 40, 255]);
+    }
+    for quality in [50, 95] {
+        // SAFETY: the pixels are live and the out pointers come from `encoded`.
+        let file = encoded(|output, size, error| unsafe {
+            progpu_native_image_encode_jpeg(rgba.as_ptr(), rgba.len(), width, height, quality, output, size, error)
+        })
+        .expect("written");
+        let (format, w, h, back) = decode_any(&file).expect("read back");
+        assert_eq!((format, w, h), (PROGPU_NATIVE_IMAGE_FORMAT_JPEG, width, height));
+        assert!(near(rgba_at(&back, width, 20, 15), [200, 60, 40, 255], 4), "quality {quality}: {:?}", rgba_at(&back, width, 20, 15));
+    }
+}
+
+#[test]
+fn an_encoder_refuses_too_few_pixels() {
+    let rgba = [0u8; 8];
+    // SAFETY: the pixels are live and the out pointers come from `encoded`.
+    let result = encoded(|output, size, error| unsafe {
+        progpu_native_image_encode_png(rgba.as_ptr(), rgba.len(), 4, 4, PROGPU_NATIVE_IMAGE_PNG_OPTIMAL, output, size, error)
+    });
+    assert_eq!(result, Err(PROGPU_NATIVE_IMAGE_ERROR_INVALID_ARGUMENT));
+}
