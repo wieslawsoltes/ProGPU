@@ -11,11 +11,13 @@
 // which keeps the rules testable without a device.
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <new>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace progpu::native {
@@ -69,6 +71,107 @@ std::uint64_t write_changed_ranges(
     return written;
 }
 
+// What the uploads of some frames cost, and how much of that is content that only
+// moved: an insertion or removal earlier in a page shifts everything after it, and
+// a page in chunks would not have written those bytes again.
+//
+// The time of the writes of one upload is shared out by bytes, so the shifted time
+// is an estimate. The time spent finding the shifted bytes is kept apart, so that a
+// measurement can take it out of the stage it ran in.
+struct range_upload_counters {
+    std::uint64_t uploaded_bytes = 0U;
+    std::uint64_t shifted_bytes = 0U;
+    std::uint64_t upload_nanoseconds = 0U;
+    std::uint64_t shifted_nanoseconds = 0U;
+    std::uint64_t counting_nanoseconds = 0U;
+    // The part of it inside the encode stage, where the path and glyph pages upload.
+    std::uint64_t counting_in_encode_nanoseconds = 0U;
+};
+
+// What the words of a page mean to the comparison. Indices of a page move by the
+// vertices inserted before them, so they count as moved when their differences match.
+enum class range_upload_content : std::uint8_t {
+    records,
+    indices,
+};
+
+// The bytes of the runs `current` writes over `previous` that hold content found
+// at another offset of `previous`, in windows of one block. Runs shorter than a
+// block are not searched, so the count errs low.
+inline std::uint64_t count_shifted_bytes(
+    std::span<const std::byte> previous,
+    std::span<const std::byte> current,
+    range_upload_content content) {
+    constexpr std::size_t window = range_upload_block / sizeof(std::uint32_t);
+    constexpr std::uint64_t base = 0x100000001B3ULL;
+    if (previous.size() < range_upload_block || current.size() < range_upload_block) {
+        return 0U;
+    }
+    const auto words_of = [content](std::span<const std::byte> bytes) {
+        std::vector<std::uint32_t> words(bytes.size() / sizeof(std::uint32_t));
+        std::memcpy(words.data(), bytes.data(), words.size() * sizeof(std::uint32_t));
+        if (content == range_upload_content::indices) {
+            for (std::size_t word = words.size() - 1U; word > 0U; --word) {
+                words[word] -= words[word - 1U];
+            }
+            words[0] = 0U;
+        }
+        return words;
+    };
+    const std::vector<std::uint32_t> before = words_of(previous);
+    const std::vector<std::uint32_t> after = words_of(current);
+    const auto hash_of = [](const std::uint32_t* words) {
+        std::uint64_t hash = 0U;
+        for (std::size_t word = 0U; word < window; ++word) {
+            hash = hash * base + words[word];
+        }
+        return hash;
+    };
+    std::uint64_t base_of_window = 1U;
+    for (std::size_t word = 0U; word < window; ++word) {
+        base_of_window *= base;
+    }
+    std::unordered_map<std::uint64_t, std::size_t> blocks;
+    blocks.reserve(before.size() / window);
+    for (std::size_t word = 0U; word + window <= before.size(); word += window) {
+        blocks.try_emplace(hash_of(before.data() + word), word);
+    }
+    std::uint64_t shifted = 0U;
+    write_changed_ranges(previous, current, [&](std::size_t offset, const std::byte*, std::size_t size) {
+        const std::size_t end = (offset + size) / sizeof(std::uint32_t);
+        std::size_t word = offset / sizeof(std::uint32_t);
+        while (word + window <= end) {
+            std::uint64_t hash = hash_of(after.data() + word);
+            bool found = false;
+            while (true) {
+                const auto block = blocks.find(hash);
+                if (block != blocks.end() && block->second != word &&
+                    std::equal(after.data() + word, after.data() + word + window,
+                        before.data() + block->second)) {
+                    std::size_t length = window;
+                    while (word + length < end && block->second + length < before.size() &&
+                        after[word + length] == before[block->second + length]) {
+                        ++length;
+                    }
+                    shifted += length * sizeof(std::uint32_t);
+                    word += length;
+                    found = true;
+                    break;
+                }
+                if (word + window >= end) {
+                    break;
+                }
+                hash = hash * base + after[word + window] - after[word] * base_of_window;
+                ++word;
+            }
+            if (!found) {
+                break;
+            }
+        }
+    });
+    return shifted;
+}
+
 // What a GPU buffer holds from offset zero.
 class range_upload_mirror final {
 public:
@@ -82,9 +185,50 @@ public:
     }
 
     // Makes the buffer hold `bytes` from offset zero through
-    // write(offset, data, size). Returns the bytes written.
+    // write(offset, data, size). Returns the bytes written. With counters it also
+    // finds what of those bytes only moved, which costs more than the upload.
     template<typename Write>
-    std::uint64_t upload(std::span<const std::byte> bytes, Write&& write) {
+    std::uint64_t upload(
+        std::span<const std::byte> bytes,
+        Write&& write,
+        range_upload_counters* counters = nullptr,
+        range_upload_content content = range_upload_content::records) {
+        if (counters == nullptr) {
+            return write_page(bytes, write);
+        }
+        using clock = std::chrono::steady_clock;
+        const auto nanoseconds = [](clock::duration time) {
+            return static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(time).count());
+        };
+        const auto counting = clock::now();
+        const std::uint64_t moved = valid_
+            ? count_shifted_bytes(std::span<const std::byte>(bytes_), bytes, content)
+            : 0U;
+        const auto writing = clock::now();
+        const std::uint64_t written = write_page(bytes, write);
+        const std::uint64_t write_time = nanoseconds(clock::now() - writing);
+        counters->counting_nanoseconds += nanoseconds(writing - counting);
+        counters->uploaded_bytes += written;
+        counters->upload_nanoseconds += write_time;
+        if (written != 0U) {
+            const std::uint64_t shifted = std::min(moved, written);
+            counters->shifted_bytes += shifted;
+            counters->shifted_nanoseconds += static_cast<std::uint64_t>(
+                static_cast<double>(write_time) * static_cast<double>(shifted) /
+                static_cast<double>(written));
+        }
+        return written;
+    }
+
+    // The CPU memory the mirror holds.
+    std::size_t capacity_bytes() const noexcept {
+        return bytes_.capacity();
+    }
+
+private:
+    template<typename Write>
+    std::uint64_t write_page(std::span<const std::byte> bytes, Write& write) {
         const std::size_t common = valid_ ? std::min(bytes_.size(), bytes.size()) : 0U;
         try {
             bytes_.resize(bytes.size());
@@ -105,12 +249,6 @@ public:
             });
     }
 
-    // The CPU memory the mirror holds.
-    std::size_t capacity_bytes() const noexcept {
-        return bytes_.capacity();
-    }
-
-private:
     std::vector<std::byte> bytes_;
     bool valid_ = false;
 };

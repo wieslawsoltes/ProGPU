@@ -6570,6 +6570,10 @@ unsafe extern "C" {
         delta: *const progpu_native_scene_delta,
         metrics: *mut progpu_native_scene_metrics,
     ) -> progpu_native_status;
+    pub fn progpu_native_engine_take_upload_counters(
+        engine: *mut progpu_native_engine,
+        counters: *mut progpu_native_upload_counters,
+    ) -> progpu_native_status;
     pub fn progpu_native_engine_register_glyph_outlines(
         engine: *mut progpu_native_engine,
         outlines: *const progpu_native_registered_glyph_outline,
@@ -6851,6 +6855,18 @@ unsafe extern "C" {
 pub struct progpu_native_scene_delta_range {
     pub offset: u64,
     pub size: u64,
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct progpu_native_upload_counters {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub uploaded_bytes: u64,
+    pub shifted_bytes: u64,
+    pub upload_nanoseconds: u64,
+    pub shifted_nanoseconds: u64,
+    pub counting_nanoseconds: u64,
+    pub counting_in_encode_nanoseconds: u64,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

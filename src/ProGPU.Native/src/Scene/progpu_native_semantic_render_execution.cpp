@@ -102,6 +102,7 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "Native scene CPU stage capture requires complete frame metrics.");
     }
+    engine->counted_uploads = capture_cpu_stages ? &engine->upload_counters : nullptr;
     progpu_native_scene_presentation presentation{};
     if (!semantic::try_resolve_scene_presentation(*frame, presentation)) {
         return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
@@ -173,6 +174,7 @@ progpu_native_status render_scene(
         capture_cpu_stages && trace_encode_requested();
     cpu_clock::time_point cpu_preflight_end{};
     cpu_clock::time_point cpu_resource_end{};
+    std::uint64_t counting_before_encode = 0U;
     cpu_clock::time_point cpu_prepare_end{};
     cpu_clock::time_point cpu_bundle_end{};
     cpu_clock::time_point cpu_encode_end{};
@@ -2699,10 +2701,13 @@ progpu_native_status render_scene(
         };
         semantic_analytic_vertex_upload_bytes = semantic_analytic_page.vertex_mirror.upload(
             std::as_bytes(std::span(engine->vertices)),
-            write_to(semantic_analytic_page.vertex_buffer));
+            write_to(semantic_analytic_page.vertex_buffer),
+            engine->counted_uploads);
         semantic_analytic_index_upload_bytes = semantic_analytic_page.index_mirror.upload(
             std::as_bytes(std::span(engine->indices)),
-            write_to(semantic_analytic_page.index_buffer));
+            write_to(semantic_analytic_page.index_buffer),
+            engine->counted_uploads,
+            progpu::native::range_upload_content::indices);
         semantic_analytic_page.draws = std::move(compiled_draws);
         semantic_analytic_page.vertex_bytes = compiled_vertex_bytes;
         semantic_analytic_page.index_bytes = compiled_index_bytes;
@@ -3923,7 +3928,8 @@ progpu_native_status render_scene(
             std::as_bytes(std::span(vertices)),
             [engine, image_vertex_target](std::size_t offset, const std::byte* data, std::size_t size) noexcept {
                 wgpuQueueWriteBuffer(engine->queue, image_vertex_target, offset, data, size);
-            });
+            },
+            engine->counted_uploads);
         engine->release_semantic_image_page();
         semantic_image_page.vertex_buffer = image_vertex_target;
         semantic_image_page.vertex_buffer_capacity = image_vertex_capacity;
@@ -3941,7 +3947,10 @@ progpu_native_status render_scene(
             : 0U;
     }
 
-    if (capture_cpu_stages) cpu_resource_end = cpu_clock::now();
+    if (capture_cpu_stages) {
+        cpu_resource_end = cpu_clock::now();
+        counting_before_encode = engine->upload_counters.counting_nanoseconds;
+    }
     if (trace_encode_checkpoints) {
         trace_encode_checkpoint(
             "resources", cpu_preflight_end, cpu_resource_end,
@@ -6929,7 +6938,11 @@ progpu_native_status render_scene(
 
     draw_calls = executed_draw_calls;
 
-    if (capture_cpu_stages) cpu_encode_end = cpu_clock::now();
+    if (capture_cpu_stages) {
+        cpu_encode_end = cpu_clock::now();
+        engine->upload_counters.counting_in_encode_nanoseconds +=
+            engine->upload_counters.counting_nanoseconds - counting_before_encode;
+    }
     if (trace_encode_checkpoints) {
         trace_encode_checkpoint(
             "replay", cpu_bundle_end, cpu_encode_end,
