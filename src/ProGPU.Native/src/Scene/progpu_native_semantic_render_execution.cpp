@@ -70,6 +70,9 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "Semantic scene rendering is owner-thread affine.");
     }
+    // No commands are open between two frames, so the mask uniform slots
+    // that were given back since the last frame began can be used again.
+    engine->layer_mask_slots.recycle();
     if (frame == nullptr ||
         frame->struct_size < legacy_frame_size ||
         frame->width == 0U ||
@@ -4567,12 +4570,14 @@ progpu_native_status render_scene(
         semantic_analytic_draw pending_analytic_draw{};
         semantic_path_draw pending_path_draw{};
         semantic_glyph_draw pending_glyph_draw{};
-        const auto release_mask_resources = [](
+        const auto release_mask_resources = [engine](
             semantic_render_bundle_span& span) noexcept {
             if (span.mask_bind_group != nullptr) {
                 wgpuBindGroupRelease(span.mask_bind_group);
                 span.mask_bind_group = nullptr;
             }
+            engine->layer_mask_slots.give(span.mask_slot);
+            span.mask_slot = progpu::native::mask_slots::no_slot;
             if (span.mask_chain_bind_group != nullptr) {
                 wgpuBindGroupRelease(span.mask_chain_bind_group);
                 span.mask_chain_bind_group = nullptr;
@@ -4813,6 +4818,7 @@ progpu_native_status render_scene(
             operation.mask_texture = active_mask.mask_texture;
             operation.mask_texture_view = active_mask.mask_texture_view;
             operation.mask_bind_group = active_mask.mask_bind_group;
+            operation.mask_slot = active_mask.mask_slot;
             operation.mask_chain_bind_group =
                 active_mask.mask_chain_bind_group;
             operation.mask_uniform_upload_bytes =
@@ -4822,6 +4828,7 @@ progpu_native_status render_scene(
             active_mask.mask_texture = nullptr;
             active_mask.mask_texture_view = nullptr;
             active_mask.mask_bind_group = nullptr;
+            active_mask.mask_slot = progpu::native::mask_slots::no_slot;
             active_mask.mask_chain_bind_group = nullptr;
             active_mask.mask_uniform_upload_bytes = 0U;
             compiled_spans.push_back(operation);

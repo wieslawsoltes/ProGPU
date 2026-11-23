@@ -836,6 +836,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_glyph_keys.hpp
     src/Backend/progpu_native_glyph_outline_registry.hpp
     src/Backend/progpu_native_glyph_raster_identity.hpp
+    src/Backend/progpu_native_mask_uniform_slots.hpp
     src/Scene/progpu_native_semantic_state.cpp
     src/Scene/progpu_native_semantic_state.hpp
     src/Scene/progpu_native_semantic_validation.cpp
@@ -2160,6 +2161,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Backend/progpu_native_buffer_capacity.hpp
         src/Backend/progpu_native_glyph_outline_registry.hpp
         src/Backend/progpu_native_glyph_raster_identity.hpp
+        src/Backend/progpu_native_mask_uniform_slots.hpp
         src/Backend/progpu_native_path_dispatch.hpp
         src/Backend/progpu_native_effect_plan.cpp
         src/Backend/progpu_native_effect_plan.hpp
