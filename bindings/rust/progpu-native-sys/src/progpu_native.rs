@@ -321,6 +321,7 @@ pub struct progpu_native_text_scalar {
     pub reserved: u8,
     pub script: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_scalar"]
@@ -348,6 +349,7 @@ pub struct progpu_native_text_feature {
     pub start: u32,
     pub end: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_feature"]
@@ -375,6 +377,7 @@ pub struct progpu_native_text_shaping_glyph {
     pub offset_x: i32,
     pub offset_y: i32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_shaping_glyph"]
@@ -428,6 +431,7 @@ pub struct progpu_native_text_shape_request {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_shape_request"]
@@ -503,6 +507,7 @@ pub struct progpu_native_text_shape_requirements {
     pub error_code: u32,
     pub scratch_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_shape_requirements"]
@@ -531,6 +536,7 @@ pub struct progpu_native_text_shape_result {
     pub reserved: u32,
     pub scratch_bytes_used: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_shape_result"]
@@ -581,6 +587,7 @@ pub struct progpu_native_text_layout_request {
     pub ellipsis_advance: f32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_layout_request"]
@@ -632,6 +639,7 @@ pub struct progpu_native_positioned_text_glyph {
     pub advance_x: f32,
     pub advance_y: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_positioned_text_glyph"]
@@ -675,6 +683,7 @@ pub struct progpu_native_positioned_text_line {
     pub reserved1: u8,
     pub reserved2: u8,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_positioned_text_line"]
@@ -719,6 +728,7 @@ pub struct progpu_native_positioned_text_column {
     pub reserved1: u8,
     pub reserved2: u8,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_positioned_text_column"]
@@ -759,6 +769,7 @@ pub struct progpu_native_text_layout_requirements {
     pub reserved: u32,
     pub scratch_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_layout_requirements"]
@@ -795,6 +806,7 @@ pub struct progpu_native_text_layout_result {
     pub measured_height: f32,
     pub scratch_bytes_used: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_layout_result"]
@@ -831,6 +843,7 @@ pub struct progpu_native_text_vertical_layout_requirements {
     pub reserved: u32,
     pub scratch_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_vertical_layout_requirements"]
@@ -883,6 +896,7 @@ pub struct progpu_native_text_vertical_layout_result {
     pub measured_height: f32,
     pub scratch_bytes_used: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_vertical_layout_result"]
@@ -927,6 +941,7 @@ pub struct progpu_native_text_line_break_requirements {
     pub error_code: u32,
     pub scratch_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_line_break_requirements"]
@@ -959,6 +974,7 @@ pub struct progpu_native_text_line_break_result {
     pub reserved: u32,
     pub scratch_bytes_used: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_line_break_result"]
@@ -1001,6 +1017,7 @@ pub struct progpu_native_edit_word_boundary_result {
     pub boundary_count: u32,
     pub leading_content_start: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_edit_word_boundary_result"]
@@ -1027,6 +1044,7 @@ pub struct progpu_native_text_bidi_level {
     pub level: i8,
     pub reserved: u8,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_bidi_level"]
@@ -1051,6 +1069,7 @@ pub struct progpu_native_text_bidi_requirements {
     pub error_code: u32,
     pub scratch_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_bidi_requirements"]
@@ -1077,6 +1096,7 @@ pub struct progpu_native_text_bidi_result {
     pub error_code: u32,
     pub scratch_bytes_used: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_bidi_result"]
@@ -1110,6 +1130,7 @@ pub struct progpu_native_text_layout_options {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_layout_options"]
@@ -1159,6 +1180,7 @@ pub struct progpu_native_text_paragraph_requirements {
     pub error_stage: u32,
     pub scratch_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_paragraph_requirements"]
@@ -1207,6 +1229,7 @@ pub struct progpu_native_text_paragraph_result {
     pub measured_height: f32,
     pub scratch_bytes_used: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_text_paragraph_result"]
@@ -1263,6 +1286,7 @@ pub struct progpu_native_engine_info {
     pub capabilities: u64,
     pub name: [::core::ffi::c_char; 64usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_engine_info"]
@@ -1304,6 +1328,7 @@ pub struct progpu_native_scene_header {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_header"]
@@ -1361,6 +1386,7 @@ pub struct progpu_native_scene_resource {
     pub auxiliary_offset: u32,
     pub auxiliary_size: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_resource"]
@@ -1407,6 +1433,7 @@ pub struct progpu_native_scene_command {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_command"]
@@ -1460,6 +1487,7 @@ pub struct progpu_native_scene_metrics {
     pub snapshot_bytes: u64,
     pub payload_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_metrics"]
@@ -1502,6 +1530,7 @@ pub struct progpu_native_engine_options {
     pub queue: usize,
     pub flags: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_engine_options"]
@@ -1544,6 +1573,7 @@ pub struct progpu_native_scene_external_image_binding {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_external_image_binding"]
@@ -1583,6 +1613,7 @@ pub struct progpu_native_color {
     pub b: f32,
     pub a: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_color"][::core::mem::size_of::<progpu_native_color>() - 16usize];
@@ -1605,6 +1636,7 @@ pub struct progpu_native_rect {
     pub height: f32,
     pub color: progpu_native_color,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_rect"][::core::mem::size_of::<progpu_native_rect>() - 32usize];
@@ -1674,6 +1706,7 @@ pub struct progpu_native_point {
     pub x: f32,
     pub y: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_point"][::core::mem::size_of::<progpu_native_point>() - 8usize];
@@ -1693,6 +1726,7 @@ pub struct progpu_native_affine_2d {
     pub m31: f32,
     pub m32: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_affine_2d"]
@@ -1720,6 +1754,7 @@ pub struct progpu_native_image_rect {
     pub width: f32,
     pub height: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_image_rect"]
@@ -1747,6 +1782,7 @@ pub struct progpu_native_scene_state {
     pub mask_resource_index: u32,
     pub guideline_resource_index: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_state"]
@@ -1778,6 +1814,7 @@ pub struct progpu_native_scene_guideline_set {
     pub guideline_x_count: u32,
     pub guideline_y_count: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_guideline_set"]
@@ -1808,6 +1845,7 @@ pub struct progpu_native_scene_layer {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer"]
@@ -1857,6 +1895,7 @@ pub struct progpu_native_scene_tile_composite {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_tile_composite"]
@@ -1912,6 +1951,7 @@ pub struct progpu_native_scene_layer_mask {
     pub reserved1: u32,
     pub reserved2: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer_mask"]
@@ -1959,6 +1999,7 @@ pub struct progpu_native_scene_layer_coverage_mask {
     pub opacity: f32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer_coverage_mask"]
@@ -1999,6 +2040,7 @@ pub struct progpu_native_scene_layer_mask_chain {
     pub mask_count: u32,
     pub masks: [progpu_native_scene_layer_mask; 4usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer_mask_chain"]
@@ -2028,6 +2070,7 @@ pub struct progpu_native_scene_layer_vector_mask {
     pub boolean_node_count: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer_vector_mask"]
@@ -2068,6 +2111,7 @@ pub struct progpu_native_scene_image_draw {
     pub opacity: f32,
     pub max_anisotropy: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_image_draw"]
@@ -2105,6 +2149,7 @@ pub struct progpu_native_scene_image_patch_batch {
     pub patch_count: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_image_patch_batch"]
@@ -2132,6 +2177,7 @@ pub struct progpu_native_scene_image_patch {
     pub transform: progpu_native_affine_2d,
     pub color: [f32; 4usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_image_patch"]
@@ -2166,6 +2212,7 @@ pub struct progpu_native_scene_picture_image {
     pub reserved: [u32; 3usize],
     pub clear_color: progpu_native_color,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_picture_image"]
@@ -2195,6 +2242,7 @@ pub struct progpu_native_scene_image_sampling_options {
     pub cubic_b: f32,
     pub cubic_c: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_image_sampling_options"]
@@ -2222,6 +2270,7 @@ pub struct progpu_native_scene_image_color_matrix {
     pub offset: [f32; 4usize],
     pub reserved: [u32; 2usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_image_color_matrix"]
@@ -2274,6 +2323,7 @@ pub struct progpu_native_scene_image_effect {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_image_effect"]
@@ -2347,6 +2397,7 @@ pub struct progpu_native_scene_brush {
     pub coordinate_transform0: [f32; 4usize],
     pub coordinate_transform1: [f32; 4usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_brush"]
@@ -2399,6 +2450,7 @@ pub struct progpu_native_scene_gradient_stop {
     pub reserved1: u32,
     pub reserved2: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_gradient_stop"]
@@ -2429,6 +2481,7 @@ pub struct progpu_native_scene_layer_brush_mask {
     pub reserved0: u32,
     pub brush: progpu_native_scene_brush,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer_brush_mask"]
@@ -2473,6 +2526,7 @@ pub struct progpu_native_scene_layer_geometry_mask {
     pub reserved2: u32,
     pub brush: progpu_native_scene_brush,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer_geometry_mask"]
@@ -2526,6 +2580,7 @@ pub struct progpu_native_scene_layer_picture_mask {
     pub opacity: f32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer_picture_mask"]
@@ -2573,6 +2628,7 @@ pub struct progpu_native_scene_layer_composite_mask {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_layer_composite_mask"]
@@ -2640,6 +2696,7 @@ pub struct progpu_native_scene_draw_brushes {
     pub brush_count: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_draw_brushes"]
@@ -2664,6 +2721,7 @@ pub struct progpu_native_scene_text_style {
     pub reserved1: u32,
     pub reserved2: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_text_style"]
@@ -2691,6 +2749,7 @@ pub struct progpu_native_scene_glyph_draw {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_glyph_draw"]
@@ -2726,6 +2785,7 @@ pub struct progpu_native_scene_rgb_glyph_draw {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_rgb_glyph_draw"]
@@ -2768,6 +2828,7 @@ pub struct progpu_native_scene_rgb_glyph_tile {
     pub target_y: i32,
     pub foreground: progpu_native_color,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_rgb_glyph_tile"]
@@ -2809,6 +2870,7 @@ pub struct progpu_native_scene_source_coverage_frame {
     pub flags: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_source_coverage_frame"]
@@ -2855,6 +2917,7 @@ pub struct progpu_native_scene_glyph_paint {
     pub texture_quad23: [f32; 4usize],
     pub sampling: [f32; 4usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_glyph_paint"]
@@ -2892,6 +2955,7 @@ pub struct progpu_native_scene_painted_glyph_draw {
     pub reserved1: u32,
     pub reserved2: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_painted_glyph_draw"]
@@ -2933,6 +2997,7 @@ pub struct progpu_native_scene_path_fill {
     pub fill_rule: u32,
     pub sample_grid: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_path_fill"]
@@ -2976,6 +3041,7 @@ pub struct progpu_native_scene_glyph_outline {
     pub raster_scale: f32,
     pub subpixel_x: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_glyph_outline"]
@@ -3006,6 +3072,7 @@ pub struct progpu_native_glyph_outline_key {
     pub glyph: u32,
     pub variant: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_glyph_outline_key"]
@@ -3030,6 +3097,7 @@ pub struct progpu_native_registered_glyph_outline {
     pub max_x: f32,
     pub max_y: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_registered_glyph_outline"]
@@ -3058,6 +3126,7 @@ pub struct progpu_native_scene_glyph_key {
     pub raster_scale: f32,
     pub subpixel_x: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_glyph_key"]
@@ -3086,6 +3155,7 @@ pub struct progpu_native_scene_color_glyph_bitmap {
     pub reserved1: u32,
     pub reserved2: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_color_glyph_bitmap"]
@@ -3133,6 +3203,7 @@ pub struct progpu_native_scene_presentation {
     pub dpi_scale_y: f32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_presentation"]
@@ -3174,6 +3245,7 @@ pub struct progpu_native_scene_frame {
     pub damage_height: f32,
     pub presentation: progpu_native_scene_presentation,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_frame"]
@@ -3234,6 +3306,7 @@ pub struct progpu_native_scene_frame_metrics {
     pub cpu_finalize_nanoseconds: u64,
     pub cpu_total_nanoseconds: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_frame_metrics"]
@@ -3321,6 +3394,7 @@ pub struct progpu_native_analytic_primitive {
     pub color: progpu_native_color,
     pub transform: progpu_native_affine_2d,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_analytic_primitive"]
@@ -3362,6 +3436,7 @@ pub struct progpu_native_geometry_primitive {
     pub color: progpu_native_color,
     pub transform: progpu_native_affine_2d,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_geometry_primitive"]
@@ -3401,6 +3476,7 @@ pub struct progpu_native_scene_point_batch {
     pub color: progpu_native_color,
     pub transform: progpu_native_affine_2d,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_point_batch"]
@@ -3438,6 +3514,7 @@ pub struct progpu_native_scene_vertex_mesh {
     pub transform: progpu_native_affine_2d,
     pub reserved: [u32; 2usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_vertex_mesh"]
@@ -3472,6 +3549,7 @@ pub struct progpu_native_scene_mesh_vertex {
     pub texture_coordinate: progpu_native_point,
     pub color: progpu_native_color,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_mesh_vertex"]
@@ -3493,6 +3571,7 @@ pub struct progpu_native_point_3d {
     pub z: f32,
     pub reserved: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_point_3d"][::core::mem::size_of::<progpu_native_point_3d>() - 16usize];
@@ -3515,6 +3594,7 @@ pub struct progpu_native_float_4 {
     pub z: f32,
     pub w: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_float_4"][::core::mem::size_of::<progpu_native_float_4>() - 16usize];
@@ -3549,6 +3629,7 @@ pub struct progpu_native_matrix_4x4 {
     pub m43: f32,
     pub m44: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_matrix_4x4"]
@@ -3599,6 +3680,7 @@ pub struct progpu_native_scene_camera_3d {
     pub view: progpu_native_matrix_4x4,
     pub camera_position: progpu_native_point_3d,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_camera_3d"]
@@ -3636,6 +3718,7 @@ pub struct progpu_native_scene_line_3d {
     pub reserved3: u32,
     pub transform: progpu_native_matrix_4x4,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_line_3d"]
@@ -3726,6 +3809,7 @@ pub struct progpu_native_scene_light_3d {
     pub direction_inner_cos: progpu_native_float_4,
     pub attenuation_outer_cos: progpu_native_float_4,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_light_3d"]
@@ -3758,6 +3842,7 @@ pub struct progpu_native_scene_mesh_3d_vertex {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_mesh_3d_vertex"]
@@ -3800,6 +3885,7 @@ pub struct progpu_native_scene_mesh_3d {
     pub light_offset: u32,
     pub light_count: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_mesh_3d"]
@@ -3859,6 +3945,7 @@ pub struct progpu_native_scene_mesh_3d_materials {
     pub brush_count: u32,
     pub reserved0: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_mesh_3d_materials"]
@@ -3905,6 +3992,7 @@ pub struct progpu_native_scene_stroke {
     pub dash_cap: u32,
     pub reserved: [u32; 2usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_stroke"]
@@ -3968,6 +4056,7 @@ pub struct progpu_native_polyline {
     pub flags: u32,
     pub dash_style: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_polyline"][::core::mem::size_of::<progpu_native_polyline>() - 72usize];
@@ -3999,6 +4088,7 @@ pub struct progpu_native_dash_style {
     pub cap: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_dash_style"]
@@ -4027,6 +4117,7 @@ pub struct progpu_native_spline {
     pub degree: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_spline"][::core::mem::size_of::<progpu_native_spline>() - 112usize];
@@ -4068,6 +4159,7 @@ pub struct progpu_native_path_segment {
     pub pad1: u32,
     pub pad2: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_path_segment"]
@@ -4110,6 +4202,7 @@ pub struct progpu_native_geometry_query_figure {
     pub segment_count: u32,
     pub flags: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_geometry_query_figure"]
@@ -4136,6 +4229,7 @@ pub struct progpu_native_geometry_query_pen {
     pub dash_cap: u32,
     pub line_join: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_geometry_query_pen"]
@@ -4186,6 +4280,7 @@ pub struct progpu_native_mil_point_hit_rectangle {
     pub width: f64,
     pub height: f64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_mil_point_hit_rectangle"]
@@ -4215,6 +4310,7 @@ pub struct progpu_native_mil_visual_visibility {
     pub handle: u32,
     pub visibility: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_mil_visual_visibility"]
@@ -4260,6 +4356,7 @@ pub struct progpu_native_hit_test_primitive {
     pub clip_fill_rule: u32,
     pub clip_flags: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_hit_test_primitive"]
@@ -4307,6 +4404,7 @@ pub struct progpu_native_hit_test_node {
     pub first_primitive: u32,
     pub primitive_count: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_hit_test_node"]
@@ -4338,6 +4436,7 @@ pub struct progpu_native_hit_test_query {
     pub flags: u32,
     pub path_segment_count: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_hit_test_query"]
@@ -4373,6 +4472,7 @@ pub struct progpu_native_hit_test_result {
     pub precise_tests: u32,
     pub intersection_detail: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_hit_test_result"]
@@ -4410,6 +4510,7 @@ pub struct progpu_native_scene_hit_test_index {
     pub primitive_index_offset: u32,
     pub path_segment_offset: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_hit_test_index"]
@@ -4459,6 +4560,7 @@ pub struct progpu_native_path_fill {
     pub fill_rule: u32,
     pub sample_grid: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_path_fill"]
@@ -4507,6 +4609,7 @@ pub struct progpu_native_clip_path {
     pub operation: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_clip_path"]
@@ -4557,6 +4660,7 @@ pub struct progpu_native_scene_clip_path {
     pub operation: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_clip_path"]
@@ -4615,6 +4719,7 @@ pub struct progpu_native_path_boolean_node {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_path_boolean_node"]
@@ -4656,6 +4761,7 @@ pub struct progpu_native_scene_path_boolean_node {
     pub reserved0: u32,
     pub reserved1: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_path_boolean_node"]
@@ -4695,6 +4801,7 @@ pub struct progpu_native_clip_chain {
     pub boolean_nodes: *const progpu_native_path_boolean_node,
     pub boolean_node_count: usize,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_clip_chain"]
@@ -4730,6 +4837,7 @@ pub struct progpu_native_glyph_outline {
     pub raster_scale: f32,
     pub subpixel_x: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_glyph_outline"]
@@ -4767,6 +4875,7 @@ pub struct progpu_native_positioned_glyph {
     pub italic_skew: f32,
     pub reserved2: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_positioned_glyph"]
@@ -4817,6 +4926,7 @@ pub struct progpu_native_group_mask {
     pub reserved3: u32,
     pub clip_chain: *const progpu_native_clip_chain,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_group_mask"]
@@ -4880,6 +4990,7 @@ pub struct progpu_native_group_effect {
     pub color_b: f32,
     pub color_a: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_group_effect"]
@@ -4923,6 +5034,7 @@ pub struct progpu_native_scene_effect_chain {
     pub revision: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_effect_chain"]
@@ -4951,6 +5063,7 @@ pub struct progpu_native_scene_shader_effect {
     pub reserved: u32,
     pub constants: [f32; 128usize],
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_effect"]
@@ -4985,6 +5098,7 @@ pub struct progpu_native_scene_shader_effect_picture {
     pub reserved: u32,
     pub program: progpu_native_scene_shader_effect,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_effect_picture"]
@@ -5016,6 +5130,7 @@ pub struct progpu_native_scene_shader_effect_derivatives {
     pub reserved: [u32; 3usize],
     pub program: progpu_native_scene_shader_effect,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_effect_derivatives"]
@@ -5067,6 +5182,7 @@ pub struct progpu_native_scene_shader_capture_frame {
     pub final_x: i32,
     pub final_y: i32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_capture_frame"]
@@ -5130,6 +5246,7 @@ pub struct progpu_native_scene_shader_effect_capture {
     pub frame: progpu_native_scene_shader_capture_frame,
     pub program: progpu_native_scene_shader_effect,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_effect_capture"]
@@ -5193,6 +5310,7 @@ pub struct progpu_native_scene_shader_sample_frame {
     pub clip_antialias: u32,
     pub reserved: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_sample_frame"]
@@ -5287,6 +5405,7 @@ pub struct progpu_native_scene_shader_effect_samples {
     pub frame: progpu_native_scene_shader_sample_frame,
     pub program: progpu_native_scene_shader_effect,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_effect_samples"]
@@ -5330,6 +5449,7 @@ pub struct progpu_native_scene_shader_affine_frame {
     pub quad_m12: f32,
     pub quad_m21: f32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_affine_frame"]
@@ -5360,6 +5480,7 @@ pub struct progpu_native_scene_shader_effect_affine {
     pub frame: progpu_native_scene_shader_affine_frame,
     pub program: progpu_native_scene_shader_effect,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_scene_shader_effect_affine"]
@@ -5401,6 +5522,7 @@ pub struct progpu_native_group_effect_chain {
     pub reserved: u32,
     pub effects: *const progpu_native_group_effect,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_group_effect_chain"]
@@ -5434,6 +5556,7 @@ pub struct progpu_native_draw_state {
     pub group_blend_mode: u32,
     pub reserved2: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_draw_state"]
@@ -5473,6 +5596,7 @@ pub struct progpu_native_cache_raster_limits {
     pub maximum_texture_width: u32,
     pub maximum_texture_height: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_cache_raster_limits"]
@@ -5509,6 +5633,7 @@ pub struct progpu_native_gpu_memory_snapshot {
     pub retained_submission_batch_count: u64,
     pub inventory_storage_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_gpu_memory_snapshot"]
@@ -5593,6 +5718,7 @@ pub struct progpu_native_layer_metrics {
     pub reserved: u32,
     pub blend_source_texture_bytes: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_layer_metrics"]
@@ -5709,6 +5835,7 @@ pub struct progpu_native_frame {
     pub rect_count: usize,
     pub draw_state: *const progpu_native_draw_state,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_frame"][::core::mem::size_of::<progpu_native_frame>() - 64usize];
@@ -5743,6 +5870,7 @@ pub struct progpu_native_frame_metrics {
     pub uniform_upload_bytes: u64,
     pub submission_count: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_frame_metrics"]
@@ -5777,6 +5905,7 @@ pub struct progpu_native_analytic_frame {
     pub primitive_count: usize,
     pub draw_state: *const progpu_native_draw_state,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_analytic_frame"]
@@ -5814,6 +5943,7 @@ pub struct progpu_native_analytic_frame_metrics {
     pub uniform_upload_bytes: u64,
     pub submission_count: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_analytic_frame_metrics"]
@@ -5868,6 +5998,7 @@ pub struct progpu_native_geometry_frame {
     pub spline_count: usize,
     pub draw_state: *const progpu_native_draw_state,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_geometry_frame"]
@@ -5931,6 +6062,7 @@ pub struct progpu_native_geometry_frame_metrics {
     pub submission_count: u64,
     pub payload_hash: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_geometry_frame_metrics"]
@@ -5985,6 +6117,7 @@ pub struct progpu_native_path_frame {
     pub boolean_nodes: *const progpu_native_path_boolean_node,
     pub boolean_node_count: usize,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_path_frame"]
@@ -6042,6 +6175,7 @@ pub struct progpu_native_path_frame_metrics {
     pub submission_count: u64,
     pub payload_hash: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_path_frame_metrics"]
@@ -6104,6 +6238,7 @@ pub struct progpu_native_glyph_frame {
     pub content_revision: u32,
     pub draw_state: *const progpu_native_draw_state,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_glyph_frame"]
@@ -6159,6 +6294,7 @@ pub struct progpu_native_glyph_frame_metrics {
     pub submission_count: u64,
     pub payload_hash: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_glyph_frame_metrics"]
@@ -6241,6 +6377,7 @@ pub struct progpu_native_image_frame {
     pub max_anisotropy: u32,
     pub reserved3: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_image_frame"]
@@ -6330,6 +6467,7 @@ pub struct progpu_native_image_frame_metrics {
     pub submission_count: u64,
     pub payload_hash: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_image_frame_metrics"]
@@ -6390,6 +6528,7 @@ pub struct progpu_native_dawn_engine_options {
     pub queue: usize,
     pub flags: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of progpu_native_dawn_engine_options"]
